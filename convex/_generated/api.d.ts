@@ -8,9 +8,13 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
 import type * as auth from "../auth.js";
 import type * as bookings from "../bookings.js";
 import type * as chat from "../chat.js";
+import type * as http from "../http.js";
+import type * as matching from "../matching.js";
+import type * as metrics from "../metrics.js";
 import type * as payments from "../payments.js";
 import type * as seed from "../seed.js";
 import type * as state from "../state.js";
@@ -24,9 +28,13 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
   auth: typeof auth;
   bookings: typeof bookings;
   chat: typeof chat;
+  http: typeof http;
+  matching: typeof matching;
+  metrics: typeof metrics;
   payments: typeof payments;
   seed: typeof seed;
   state: typeof state;

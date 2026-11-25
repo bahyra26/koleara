@@ -5,6 +5,7 @@ import {
   parseWibDateTimeLocal,
   toWibDateTimeLocalValue,
 } from "@/lib/formatters";
+import { calculateBriefMatchScore } from "@/lib/matching";
 import {
   authService,
   bookingService,
@@ -316,5 +317,62 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
     });
     assert.equal(repeatStart.ok, false);
     if (!repeatStart.ok) assert.equal(repeatStart.code, "ALREADY_PAID");
+  });
+
+  it("reproduces Bab 4.7 explainable rule-based matching benchmark scores (88.0, 81.1, 70.4)", () => {
+    // Contoh perhitungan Bab 4.7 Brief:
+    // Learner mencari Kalkulus 1, subtopik integral tentu, anggaran Rp35.000
+    const tutorA = calculateBriefMatchScore({
+      tutorId: "tutor-a",
+      mastersSubtopic: true,
+      subtopicLabel: "integral tentu",
+      courseLabel: "Kalkulus 1",
+      badge: "asdos",
+      reviewCount: 10,
+      ratingSum: 4.6 * 10,
+      hourlyRate: 35000,
+      maxBudget: 35000,
+      matchingSlotsCount: 3,
+    });
+    assert.equal(tutorA.topicScore, 100);
+    assert.equal(tutorA.trustScore, 93.5);
+    assert.equal(tutorA.budgetScore, 50.0);
+    assert.equal(tutorA.scheduleScore, 100);
+    assert.equal(tutorA.totalScore, 88.0);
+
+    const tutorB = calculateBriefMatchScore({
+      tutorId: "tutor-b",
+      mastersSubtopic: true,
+      subtopicLabel: "integral tentu",
+      courseLabel: "Kalkulus 1",
+      badge: "grade",
+      reviewCount: 0,
+      ratingSum: 0,
+      hourlyRate: 20000,
+      maxBudget: 35000,
+      matchingSlotsCount: 1,
+    });
+    assert.equal(tutorB.topicScore, 100);
+    assert.equal(tutorB.trustScore, 75.0);
+    assert.equal(tutorB.budgetScore, 92.9);
+    assert.equal(tutorB.scheduleScore, 33.3);
+    assert.equal(tutorB.totalScore, 81.1);
+
+    const tutorC = calculateBriefMatchScore({
+      tutorId: "tutor-c",
+      mastersSubtopic: false,
+      courseLabel: "Kalkulus 1",
+      badge: "grade",
+      reviewCount: 4,
+      ratingSum: 4.2 * 4,
+      hourlyRate: 25000,
+      maxBudget: 35000,
+      matchingSlotsCount: 2,
+    });
+    assert.equal(tutorC.topicScore, 60);
+    assert.equal(tutorC.trustScore, 79.0);
+    assert.equal(tutorC.budgetScore, 78.6);
+    assert.equal(tutorC.scheduleScore, 66.7);
+    assert.equal(tutorC.totalScore, 70.4);
   });
 });

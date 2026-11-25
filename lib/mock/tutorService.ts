@@ -6,6 +6,7 @@ import type {
   TutorSearchFilters,
   TutorSearchResult,
 } from "@/lib/contracts";
+import { calculateBriefMatchScore } from "@/lib/matching";
 import {
   createSyntheticId,
   getConvexMutationHandlers,
@@ -110,51 +111,41 @@ export const tutorService = {
         continue;
       }
 
-      let score = 0;
-      const reasons: string[] = [];
+      const mastersSubtopic = topic
+        ? tutor.topics.some((t) => t.toLowerCase().includes(topic))
+        : query
+          ? tutor.topics.some((t) => t.toLowerCase().includes(query))
+          : false;
 
-      let topicScore = 22;
-      if (topic) {
-        const exactTopic = tutor.topics.some((t) => t.toLowerCase() === topic);
-        topicScore = exactTopic ? 40 : 32;
-        reasons.push("Topik cocok");
-      } else if (query) {
-        const matchesTopic = tutor.topics.some((t) =>
-          t.toLowerCase().includes(query)
-        );
-        const matchesName = tutor.name.toLowerCase().includes(query);
-        topicScore = matchesTopic ? 38 : matchesName ? 35 : 28;
-        reasons.push("Kata kunci cocok");
-      } else if (courseId) {
-        topicScore = 34;
-        reasons.push("Mata kuliah cocok");
-      }
-      score += topicScore;
+      const matchedTopicLabel = topic
+        ? tutor.topics.find((t) => t.toLowerCase().includes(topic))
+        : query
+          ? tutor.topics.find((t) => t.toLowerCase().includes(query))
+          : undefined;
 
-      const badgePts = tutor.badge === "asdos" ? 15 : 12;
-      const ratingPts = Math.round(((tutor.rating ?? 4.5) / 5) * 10);
-      score += Math.min(25, badgePts + ratingPts);
+      const matchingSlotsCount = scheduleQuery
+        ? tutor.slots.filter((slot) =>
+            slot.toLowerCase().includes(scheduleQuery)
+          ).length
+        : tutor.slots.length;
 
-      if (maxBudget !== null) {
-        const ratio = maxBudget > 0 ? tutor.hourlyRate / maxBudget : 1;
-        score += ratio <= 0.75 ? 20 : ratio <= 0.9 ? 17 : 14;
-        reasons.push("Masuk anggaran");
-      } else {
-        score += tutor.hourlyRate <= 45000 ? 18 : 14;
-      }
-
-      if (scheduleQuery) {
-        score += 15;
-        reasons.push("Jadwal cocok");
-      } else {
-        score += tutor.slots.length >= 3 ? 13 : 10;
-      }
+      const calc = calculateBriefMatchScore({
+        tutorId: tutor.id,
+        mastersSubtopic,
+        subtopicLabel: matchedTopicLabel,
+        courseLabel: tutorCourses[0]?.name,
+        badge: tutor.badge,
+        rating: tutor.rating,
+        hourlyRate: tutor.hourlyRate,
+        maxBudget,
+        matchingSlotsCount,
+      });
 
       results.push({
         tutor,
         courses: tutorCourses,
-        matchScore: Math.min(100, Math.max(1, score)),
-        matchReasons: reasons,
+        matchScore: calc.roundedScore,
+        matchReasons: calc.reasons,
       });
     }
 
