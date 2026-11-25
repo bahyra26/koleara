@@ -1,0 +1,48 @@
+meta {
+  name: Ambil Daftar Mata Kuliah
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseURL}}/api/courses
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil seluruh mata kuliah SKPB ITS beserta kode mata kuliah dan daftar subtopik resminya.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Daftar mata kuliah berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Data mata kuliah berhasil diambil.",
+    "data": [
+      {
+        "id": "course-kalkulus-1",
+        "code": "KM234101",
+        "name": "Kalkulus 1",
+        "description": "Konsep dasar fungsi, limit, turunan, serta integral satu peubah untuk mahasiswa tahun pertama ITS.",
+        "topics": [
+          "Limit & Kekontinuan",
+          "Turunan",
+          "Aplikasi Turunan",
+          "Integral Tak Tentu",
+          "Integral Tentu",
+          "Teknik Integrasi"
+        ]
+      }
+    ]
+  }
+  ```
+}

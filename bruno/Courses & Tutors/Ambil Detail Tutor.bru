@@ -1,0 +1,65 @@
+meta {
+  name: Ambil Detail Tutor
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseURL}}/api/tutors/:tutor_id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  tutor_id: tutor-nadia
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Digunakan pada halaman `/tutor/[id]` untuk menampilkan bio, lencana verifikasi (`asdos` / `grade`), daftar mata kuliah & subtopik, tarif, dan jadwal slot ketersediaan.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Profil tutor ditemukan |
+  | `404` | Tutor tidak ditemukan atau belum terverifikasi |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Detail tutor berhasil diambil.",
+    "data": {
+      "id": "tutor-nadia",
+      "userId": "user-tutor-1",
+      "name": "Nadia Putri",
+      "department": "Matematika",
+      "cohort": 2023,
+      "bio": "Asisten dosen Kalkulus 1 (data contoh). Terbiasa membantu latihan soal ETS/EAS mulai dari limit hingga teknik integrasi dengan langkah terstruktur.",
+      "courseIds": [
+        "course-kalkulus-1"
+      ],
+      "topics": [
+        "Limit & Kekontinuan",
+        "Turunan",
+        "Integral Tak Tentu",
+        "Integral Tentu",
+        "Teknik Integrasi"
+      ],
+      "hourlyRate": 45000,
+      "verified": true,
+      "badge": "asdos",
+      "rating": 4.9,
+      "completedSessionsDemo": 24,
+      "slots": [
+        "Senin 18:30 WIB",
+        "Rabu 19:00 WIB",
+        "Sabtu 10:00 WIB"
+      ]
+    }
+  }
+  ```
+}

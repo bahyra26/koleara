@@ -1,0 +1,56 @@
+meta {
+  name: Login Akun (Verifikasi OTP)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseURL}}/api/auth/verify-otp
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "email": "0000000001@student.its.ac.id",
+    "otp": "123456",
+    "mode": "login"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Memverifikasi kode OTP 6 digit (`123456`). Jika `mode = signup`, otomatis membuat user baru dengan role `learner`.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `email` | Email mahasiswa ITS |
+  | `otp` | Kode OTP 6 digit (`123456`) |
+  | `mode` | `login` atau `signup` |
+  | `name` | Nama lengkap mahasiswa (wajib saat `mode = signup`) |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Autentikasi berhasil |
+  | `400` | Format email atau kode OTP tidak valid |
+  | `404` | Akun belum terdaftar saat `mode = login` |
+  | `409` | Email sudah terdaftar saat `mode = signup` |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Verifikasi OTP berhasil.",
+    "data": {
+      "id": "user-learner-demo",
+      "email": "0000000001@student.its.ac.id",
+      "name": "Bima Pratama",
+      "role": "learner"
+    }
+  }
+  ```
+}

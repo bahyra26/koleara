@@ -1,0 +1,55 @@
+meta {
+  name: Ambil Pesan Percakapan
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseURL}}/api/conversations/:conversation_id/messages
+  body: none
+  auth: inherit
+}
+
+params:path {
+  conversation_id: conv-demo-seed-1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil daftar bubble pesan teks (`type = text`) dan kartu tawaran sesi (`type = offer`) secara kronologis.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Daftar pesan berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Pesan percakapan berhasil diambil.",
+    "data": [
+      {
+        "id": "msg-seed-1",
+        "conversationId": "conv-demo-seed-1",
+        "senderId": "user-learner-demo",
+        "type": "text",
+        "content": "Halo Kak Nadia, apakah bisa bantu bahas soal Integral Tentu untuk persiapan kuis minggu depan?",
+        "createdAt": 1795503600000,
+        "readAt": 1795503720000
+      },
+      {
+        "id": "msg-seed-2",
+        "conversationId": "conv-demo-seed-1",
+        "senderId": "user-tutor-1",
+        "type": "text",
+        "content": "Halo Bima! Bisa banget. Kirim saja kisaran jadwal yang kosong nanti aku buatkan tawaran sesinya ya (pesan contoh demo).",
+        "createdAt": 1795503900000
+      }
+    ]
+  }
+  ```
+}

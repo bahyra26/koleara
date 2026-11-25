@@ -1,0 +1,51 @@
+meta {
+  name: Tolak Tawaran Sesi
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseURL}}/api/bookings/:booking_id/decline
+  body: json
+  auth: inherit
+}
+
+params:path {
+  booking_id: bk-demo-1
+}
+
+body:json {
+  {
+    "actor_user_id": "user-learner-demo"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengubah status tawaran sesi dari `offered` menjadi `declined`.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `actor_user_id` | ID akun mahasiswa penerima tawaran |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Tawaran sesi berhasil ditolak |
+  | `409` | Tawaran sudah tidak dalam status `offered` |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Tawaran sesi telah ditolak.",
+    "data": {
+      "id": "bk-demo-1",
+      "status": "declined"
+    }
+  }
+  ```
+}

@@ -1,0 +1,53 @@
+meta {
+  name: Ambil Daftar Percakapan
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseURL}}/api/conversations?user_id=user-learner-demo
+  body: none
+  auth: inherit
+}
+
+params:query {
+  user_id: user-learner-demo
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil seluruh percakapan di mana `user_id` terlibat sebagai mahasiswa maupun tutor, terurut dari pesan terbaru.
+  
+  | Query | Nilai |
+  |-------|-------|
+  | `user_id` | ID pengguna aktif (`user-learner-demo` atau `user-tutor-1`) |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Daftar percakapan berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Daftar percakapan berhasil diambil.",
+    "data": [
+      {
+        "conversation": {
+          "id": "conv-demo-seed-1",
+          "learnerId": "user-learner-demo",
+          "tutorId": "tutor-nadia",
+          "lastMessageAt": 1795503900000
+        },
+        "peerName": "Nadia Putri",
+        "peerRoleLabel": "Tutor",
+        "unreadCount": 1
+      }
+    ]
+  }
+  ```
+}

@@ -1,0 +1,59 @@
+meta {
+  name: Ambil Ringkasan Checkout
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseURL}}/api/bookings/:booking_id/checkout
+  body: none
+  auth: inherit
+}
+
+params:path {
+  booking_id: bk-demo-1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil data gabungan `booking`, `payment`, `tutor`, `learner`, dan `course` untuk ditampilkan di layar checkout QRIS.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Data checkout berhasil diambil |
+  | `404` | Booking tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Data checkout berhasil diambil.",
+    "data": {
+      "booking": {
+        "id": "bk-demo-1",
+        "topic": "Integral Tentu",
+        "price": 45000,
+        "status": "accepted"
+      },
+      "payment": {
+        "id": "pay-bk-demo-1",
+        "bookingId": "bk-demo-1",
+        "amount": 45000,
+        "status": "unpaid"
+      },
+      "tutor": {
+        "id": "tutor-nadia",
+        "name": "Nadia Putri"
+      },
+      "course": {
+        "id": "course-kalkulus-1",
+        "name": "Kalkulus 1"
+      }
+    }
+  }
+  ```
+}

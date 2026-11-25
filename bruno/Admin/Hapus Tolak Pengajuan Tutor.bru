@@ -1,0 +1,40 @@
+meta {
+  name: Hapus / Tolak Pengajuan Tutor
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseURL}}/api/admin/tutor-applications/:application_id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  application_id: app-tutor-demo
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menghapus pengajuan tutor berstatus `pending` yang tidak memenuhi syarat verifikasi.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Pengajuan berhasil dihapus |
+  | `404` | Pengajuan tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Pengajuan tutor telah ditolak dan dihapus dari antrean.",
+    "data": {
+      "rejected": true
+    }
+  }
+  ```
+}

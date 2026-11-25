@@ -1,0 +1,45 @@
+meta {
+  name: Ambil Subtopik Mata Kuliah
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseURL}}/api/courses/:course_id/topics
+  body: none
+  auth: inherit
+}
+
+params:path {
+  course_id: course-kalkulus-1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil array subtopik berdasarkan `course_id` (misalnya `course-kalkulus-1` atau `course-fisika-dasar-1`).
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Daftar subtopik berhasil diambil |
+  | `404` | Mata kuliah tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Daftar subtopik berhasil diambil.",
+    "data": [
+      "Limit & Kekontinuan",
+      "Turunan",
+      "Aplikasi Turunan",
+      "Integral Tak Tentu",
+      "Integral Tentu",
+      "Teknik Integrasi"
+    ]
+  }
+  ```
+}

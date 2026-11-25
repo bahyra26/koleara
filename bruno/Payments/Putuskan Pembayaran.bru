@@ -1,0 +1,53 @@
+meta {
+  name: Putuskan Pembayaran
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseURL}}/api/bookings/:booking_id/payment/status
+  body: json
+  auth: inherit
+}
+
+params:path {
+  booking_id: bk-demo-1
+}
+
+body:json {
+  {
+    "decision": "approve"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Memutuskan bukti pembayaran yang berstatus `pending_verification`. Saat `decision = approve`, status `payment` dan `booking` berubah menjadi `paid` dan memunculkan Pop-up Success di sisi mahasiswa.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `decision` | `approve` (setujui & lunas) atau `reject` (tolak bukti) |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Status pembayaran berhasil diperbarui |
+  | `409` | Pembayaran tidak sedang dalam status `pending_verification` |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Status pembayaran berhasil diperbarui.",
+    "data": {
+      "id": "pay-bk-demo-1",
+      "bookingId": "bk-demo-1",
+      "amount": 45000,
+      "status": "paid"
+    }
+  }
+  ```
+}

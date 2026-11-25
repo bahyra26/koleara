@@ -1,0 +1,57 @@
+meta {
+  name: Setujui Pengajuan Tutor
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseURL}}/api/admin/tutor-applications/:application_id/approve
+  body: json
+  auth: inherit
+}
+
+params:path {
+  application_id: app-tutor-demo
+}
+
+body:json {
+  {
+    "department": "Teknik Informatika",
+    "cohort": 2023,
+    "badge": "grade"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menyetujui pendaftaran tutor, memberikan lencana verifikasi (`grade` atau `asdos`), dan memindahkan data ke tabel `tutors` dengan `verified = true`.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `department` | Departemen ITS tutor |
+  | `cohort` | Angkatan tutor |
+  | `badge` | Lencana verifikasi: `grade` (Nilai A/AB) atau `asdos` |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Tutor berhasil diverifikasi dan aktif di `/cari` |
+  | `404` | ID pengajuan tutor tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Pengajuan tutor disetujui dan profil tutor telah aktif.",
+    "data": {
+      "id": "tutor-bima-pratama",
+      "name": "Bima Pratama",
+      "verified": true,
+      "badge": "grade"
+    }
+  }
+  ```
+}

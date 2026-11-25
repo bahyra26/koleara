@@ -1,0 +1,52 @@
+meta {
+  name: Terima Tawaran Sesi
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseURL}}/api/bookings/:booking_id/accept
+  body: json
+  auth: inherit
+}
+
+params:path {
+  booking_id: bk-demo-1
+}
+
+body:json {
+  {
+    "actor_user_id": "user-learner-demo"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menjalankan transaksi ACID di Convex: memastikan jadwal belum kedaluwarsa (`OFFER_EXPIRED`), mengecek tidak ada sesi aktif lain milik tutor pada rentang 60 menit yang sama (`SCHEDULE_CONFLICT`), mengubah status menjadi `accepted`, dan membuat tagihan `unpaid`.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `actor_user_id` | ID akun mahasiswa penerima tawaran |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Tawaran sesi berhasil diterima (`status = accepted`) |
+  | `400` | Jadwal sudah lewat atau pemanggil bukan mahasiswa |
+  | `409` | Jadwal bentrok (`SCHEDULE_CONFLICT`) atau sudah diterima/ditolak |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Tawaran sesi berhasil diterima. Silakan lanjutkan ke pembayaran.",
+    "data": {
+      "id": "bk-demo-1",
+      "status": "accepted"
+    }
+  }
+  ```
+}

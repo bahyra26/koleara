@@ -1,0 +1,50 @@
+meta {
+  name: Tandai Pesan Dibaca
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseURL}}/api/conversations/:conversation_id/read
+  body: json
+  auth: inherit
+}
+
+params:path {
+  conversation_id: conv-demo-seed-1
+}
+
+body:json {
+  {
+    "reader_id": "user-learner-demo"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Memperbarui `readAt` pada semua pesan masuk di percakapan ini yang belum dibaca oleh `reader_id`.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `reader_id` | ID pengguna yang membuka ruang chat |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Status baca berhasil diperbarui |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Seluruh pesan ditandai sudah dibaca.",
+    "data": {
+      "conversation_id": "conv-demo-seed-1",
+      "read": true
+    }
+  }
+  ```
+}

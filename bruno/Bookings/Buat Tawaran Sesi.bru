@@ -1,0 +1,73 @@
+meta {
+  name: Buat Tawaran Sesi
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseURL}}/api/conversations/:conversation_id/offers
+  body: json
+  auth: inherit
+}
+
+params:path {
+  conversation_id: conv-demo-seed-1
+}
+
+body:json {
+  {
+    "actor_user_id": "user-tutor-1",
+    "course_id": "course-kalkulus-1",
+    "topic": "Integral Tentu",
+    "start_at": 1800000000000,
+    "price": 45000,
+    "meeting_mode": "online",
+    "brief": "Bahas latihan soal Integral Tentu dan Teorema Fundamental Kalkulus."
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Hanya tutor pada percakapan tersebut yang dapat membuat tawaran. Membuat record `bookings` (`status = offered`) dan mengirimkan kartu tawaran ke ruang chat.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `actor_user_id` | ID user milik Tutor (`user-tutor-1`) |
+  | `course_id` | ID mata kuliah |
+  | `topic` | Subtopik bahasan |
+  | `start_at` | Timestamp jadwal mulai sesi (epoch ms di waktu mendatang) |
+  | `price` | Tarif sesi 60 menit dalam Rupiah |
+  | `meeting_mode` | `online` atau `offline_its` (Tatap muka di kampus ITS) |
+  | `brief` | Catatan persiapan sesi / Pre-Session Brief |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `201` | Kartu tawaran sesi berhasil dibuat |
+  | `400` | Jadwal sudah lewat atau actor bukan tutor percakapan |
+  | `404` | Percakapan atau mata kuliah tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Tawaran sesi berhasil dikirim ke ruang chat.",
+    "data": {
+      "id": "bk-demo-1",
+      "conversationId": "conv-demo-seed-1",
+      "learnerId": "user-learner-demo",
+      "tutorId": "tutor-nadia",
+      "courseId": "course-kalkulus-1",
+      "topic": "Integral Tentu",
+      "startAt": 1800000000000,
+      "durationMinutes": 60,
+      "price": 45000,
+      "meetingMode": "online",
+      "status": "offered"
+    }
+  }
+  ```
+}

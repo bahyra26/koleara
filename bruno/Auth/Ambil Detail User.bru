@@ -1,0 +1,43 @@
+meta {
+  name: Ambil Detail User
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseURL}}/api/users/:user_id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  user_id: user-learner-demo
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil profil dasar satu pengguna dari tabel `users`.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | User ditemukan |
+  | `404` | User tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Detail user berhasil diambil.",
+    "data": {
+      "id": "user-learner-demo",
+      "email": "0000000001@student.its.ac.id",
+      "name": "Bima Pratama",
+      "role": "learner"
+    }
+  }
+  ```
+}

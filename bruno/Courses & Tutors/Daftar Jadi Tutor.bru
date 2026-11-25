@@ -1,0 +1,78 @@
+meta {
+  name: Daftar Jadi Tutor
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseURL}}/api/tutor-applications
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "user_id": "user-learner-demo",
+    "name": "Bima Pratama",
+    "course_ids": [
+      "course-kalkulus-1"
+    ],
+    "topics": [
+      "Turunan",
+      "Integral Tentu"
+    ],
+    "bio": "Pernah mendapat nilai A di Kalkulus 1 dan siap membimbing konsep dasar secara bertahap.",
+    "hourly_rate": 40000,
+    "slots": [
+      "Senin 18:30 WIB",
+      "Kamis 19:00 WIB"
+    ]
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menyimpan pengajuan tutor baru dengan status `pending`. Pengajuan tidak langsung aktif di pencarian sebelum disetujui admin.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `user_id` | ID akun pengguna yang mendaftar |
+  | `name` | Nama lengkap calon tutor (minimal 2 karakter) |
+  | `course_ids` | Array ID mata kuliah yang diajarkan |
+  | `topics` | Array subtopik yang dikuasai |
+  | `bio` | Bio singkat mengajar (minimal 15 karakter) |
+  | `hourly_rate` | Tarif per 60 menit dalam Rupiah |
+  | `slots` | Array slot jadwal ketersediaan mingguan |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `201` | Pengajuan tutor berhasil disimpan (status `pending`) |
+  | `400` | Validasi form gagal (bio kurang panjang, tarif tidak valid) |
+  | `404` | User tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Pengajuan pendaftaran tutor berhasil dikirim.",
+    "data": {
+      "id": "app-tutor-demo",
+      "userId": "user-learner-demo",
+      "name": "Bima Pratama",
+      "courseIds": [
+        "course-kalkulus-1"
+      ],
+      "topics": [
+        "Turunan",
+        "Integral Tentu"
+      ],
+      "hourlyRate": 40000,
+      "status": "pending"
+    }
+  }
+  ```
+}

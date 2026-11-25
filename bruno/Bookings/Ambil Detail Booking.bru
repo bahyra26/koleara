@@ -1,0 +1,50 @@
+meta {
+  name: Ambil Detail Booking
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseURL}}/api/bookings/:booking_id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  booking_id: bk-demo-1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil data booking berdasarkan `booking_id`.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Data booking ditemukan |
+  | `404` | Booking tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Data booking berhasil diambil.",
+    "data": {
+      "id": "bk-demo-1",
+      "conversationId": "conv-demo-seed-1",
+      "learnerId": "user-learner-demo",
+      "tutorId": "tutor-nadia",
+      "courseId": "course-kalkulus-1",
+      "topic": "Integral Tentu",
+      "startAt": 1800000000000,
+      "durationMinutes": 60,
+      "price": 45000,
+      "meetingMode": "online",
+      "status": "offered"
+    }
+  }
+  ```
+}

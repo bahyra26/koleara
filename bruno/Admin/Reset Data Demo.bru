@@ -1,0 +1,35 @@
+meta {
+  name: Reset Data Demo
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseURL}}/api/demo/reset
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menghapus data percobaan dan memuat ulang data awal (2 mata kuliah, 5 tutor ITS terverifikasi, 6 akun demo, dan 1 ruang chat contoh).
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Data demo berhasil direset |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Seluruh data demo berhasil direset ke kondisi awal.",
+    "data": {
+      "reset": true
+    }
+  }
+  ```
+}

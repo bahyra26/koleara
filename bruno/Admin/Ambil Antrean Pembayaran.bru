@@ -1,0 +1,33 @@
+meta {
+  name: Ambil Antrean Pembayaran
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseURL}}/api/admin/payments
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menampilkan seluruh transaksi di tabel `payments` dengan status `pending_verification`.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Antrean pembayaran berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Antrean pembayaran berhasil diambil.",
+    "data": []
+  }
+  ```
+}

@@ -1,0 +1,54 @@
+meta {
+  name: Ambil Daftar User
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseURL}}/api/users
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~role: 
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengambil daftar akun pengguna terdaftar. Dapat difilter berdasarkan `role` (`learner` atau `tutor`).
+  
+  | Query | Nilai |
+  |-------|-------|
+  | `role` | Filter peran pengguna: `learner` atau `tutor` |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Berhasil mengambil daftar user |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Data user berhasil diambil.",
+    "data": [
+      {
+        "id": "user-learner-demo",
+        "email": "0000000001@student.its.ac.id",
+        "name": "Bima Pratama",
+        "role": "learner"
+      },
+      {
+        "id": "user-tutor-1",
+        "email": "0000000101@student.its.ac.id",
+        "name": "Nadia Putri",
+        "role": "tutor"
+      }
+    ]
+  }
+  ```
+}

@@ -1,0 +1,47 @@
+meta {
+  name: Ambil Ringkasan Metrik Pilot
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseURL}}/api/admin/metrics
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mengekstrak metrik pilot secara otomatis dari database Convex: jumlah user, tutor terverifikasi, tingkat penerimaan tawaran (%), tingkat penyelesaian pembayaran (%), rata-rata rating tutor, dan total pendapatan.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Ringkasan metrik berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Ringkasan metrik pilot berhasil diambil.",
+    "data": {
+      "totalUsers": 6,
+      "totalLearners": 1,
+      "totalVerifiedTutors": 5,
+      "pendingTutorApplications": 0,
+      "totalConversations": 1,
+      "totalMessages": 2,
+      "totalBookings": 0,
+      "acceptedOrPaidBookings": 0,
+      "paidBookings": 0,
+      "acceptanceRatePercent": 0,
+      "paymentCompletionRatePercent": 0,
+      "averageTutorRating": 4.82,
+      "totalRevenueIdr": 0
+    }
+  }
+  ```
+}

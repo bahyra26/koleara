@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "name": "KOLEARA \u2014 Convex Backend API",
+  "name": "KOLEARA API Docs",
   "type": "collection",
   "ignore": [
     "node_modules",

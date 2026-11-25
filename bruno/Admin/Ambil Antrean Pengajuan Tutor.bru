@@ -1,0 +1,33 @@
+meta {
+  name: Ambil Antrean Pengajuan Tutor
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseURL}}/api/admin/tutor-applications
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menampilkan seluruh pengajuan di tabel `tutorApplications` yang masih berstatus `pending`.
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Antrean pengajuan tutor berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Antrean pengajuan tutor berhasil diambil.",
+    "data": []
+  }
+  ```
+}

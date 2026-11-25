@@ -1,0 +1,52 @@
+meta {
+  name: Minta Kode OTP
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseURL}}/api/auth/request-otp
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "email": "0000000001@student.its.ac.id",
+    "mode": "login"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Memvalidasi format wajib `10 digit NRP@student.its.ac.id` dan mengirim kode OTP (`123456` pada mode demo).
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `email` | Email mahasiswa ITS (10 digit NRP@student.its.ac.id) |
+  | `mode` | `login` untuk akun terdaftar, `signup` untuk akun baru |
+  | `name` | Nama lengkap mahasiswa (wajib saat `mode = signup`) |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Kode OTP berhasil dibuat |
+  | `400` | Format email bukan 10 digit NRP@student.its.ac.id |
+  | `404` | Email belum terdaftar saat mode `login` |
+  | `409` | Email sudah terdaftar saat mode `signup` |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Kode OTP berhasil dikirim.",
+    "data": {
+      "email": "0000000001@student.its.ac.id",
+      "demo_otp": "123456"
+    }
+  }
+  ```
+}

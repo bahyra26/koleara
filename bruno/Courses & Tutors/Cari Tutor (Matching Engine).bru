@@ -1,0 +1,79 @@
+meta {
+  name: Cari Tutor (Matching Engine)
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseURL}}/api/tutors?query=Integral&course_id=course-kalkulus-1&topic=Integral%20Tentu&max_budget=45000
+  body: none
+  auth: inherit
+}
+
+params:query {
+  query: Integral
+  course_id: course-kalkulus-1
+  topic: Integral Tentu
+  max_budget: 45000
+  ~schedule: 
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menyaring tutor terverifikasi dan menghitung skor kecocokan menggunakan rumus Bab 4.7 Brief: `S = 0.35 * M_topik + 0.30 * M_kepercayaan + 0.20 * M_anggaran + 0.15 * M_jadwal` beserta Rating Bayesian. Semua query filter bersifat opsional.
+  
+  | Query | Nilai |
+  |-------|-------|
+  | `query` | Kata kunci nama tutor, departemen, bio, atau subtopik |
+  | `course_id` | ID mata kuliah (`course-kalkulus-1` / `course-fisika-dasar-1`) |
+  | `topic` | Nama subtopik spesifik |
+  | `max_budget` | Batas tarif maksimal per 60 menit dalam Rupiah |
+  | `schedule` | Filter hari atau jam slot (contoh: `Senin`, `Sabtu`, `19:00`) |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Hasil pencarian tutor berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Daftar tutor berhasil diambil.",
+    "data": [
+      {
+        "tutor": {
+          "id": "tutor-nadia",
+          "userId": "user-tutor-1",
+          "name": "Nadia Putri",
+          "department": "Matematika",
+          "cohort": 2023,
+          "hourlyRate": 45000,
+          "verified": true,
+          "badge": "asdos",
+          "rating": 4.9,
+          "completedSessionsDemo": 24,
+          "slots": [
+            "Senin 18:30 WIB",
+            "Rabu 19:00 WIB",
+            "Sabtu 10:00 WIB"
+          ]
+        },
+        "matchScore": 89,
+        "matchReasons": [
+          "Menguasai Integral Tentu",
+          "Verified Asdos",
+          "Masuk anggaran",
+          "3 slot cocok"
+        ]
+      }
+    ],
+    "meta": {
+      "count": 3
+    }
+  }
+  ```
+}

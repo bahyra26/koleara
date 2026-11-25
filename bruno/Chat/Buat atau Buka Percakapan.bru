@@ -1,0 +1,52 @@
+meta {
+  name: Buat atau Buka Percakapan
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseURL}}/api/conversations
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "learner_id": "user-learner-demo",
+    "tutor_id": "tutor-nadia"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Jika ruang chat antara `learner_id` dan `tutor_id` sudah ada, mengembalikan ruang chat tersebut. Jika belum ada, membuat ruang chat baru.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `learner_id` | ID akun mahasiswa |
+  | `tutor_id` | ID profil tutor yang dihubungi |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Ruang percakapan berhasil dibuka/dibuat |
+  | `400` | Tutor mencoba menghubungi dirinya sendiri (`SELF_CHAT_NOT_ALLOWED`) |
+  | `404` | Mahasiswa atau tutor tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Ruang percakapan siap.",
+    "data": {
+      "id": "conv-demo-seed-1",
+      "learnerId": "user-learner-demo",
+      "tutorId": "tutor-nadia",
+      "lastMessageAt": 1795503900000
+    }
+  }
+  ```
+}

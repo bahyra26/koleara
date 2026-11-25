@@ -1,0 +1,41 @@
+meta {
+  name: Ambil Riwayat Pengajuan Tutor
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseURL}}/api/tutor-applications?user_id=user-learner-demo
+  body: none
+  auth: inherit
+}
+
+params:query {
+  user_id: user-learner-demo
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menampilkan daftar pengajuan tutor berdasarkan query parameter `user_id`.
+  
+  | Query | Nilai |
+  |-------|-------|
+  | `user_id` | ID pengguna yang ingin dilihat riwayat pengajuannya |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Riwayat pengajuan berhasil diambil |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Data pengajuan tutor berhasil diambil.",
+    "data": []
+  }
+  ```
+}

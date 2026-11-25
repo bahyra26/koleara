@@ -1,0 +1,58 @@
+meta {
+  name: Kirim Pesan Chat
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseURL}}/api/conversations/:conversation_id/messages
+  body: json
+  auth: inherit
+}
+
+params:path {
+  conversation_id: conv-demo-seed-1
+}
+
+body:json {
+  {
+    "sender_id": "user-learner-demo",
+    "content": "Halo Kak Nadia, apakah Kamis pukul 19:00 WIB kosong?"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Menambahkan bubble pesan baru ke dalam percakapan dan memperbarui `lastMessageAt`. Pengirim wajib merupakan peserta percakapan.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `sender_id` | ID akun pengirim (`user-learner-demo` atau `user-tutor-1`) |
+  | `content` | Isi teks pesan chat |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `201` | Pesan berhasil dikirim |
+  | `400` | Pesan kosong atau pengirim bukan peserta percakapan |
+  | `404` | Percakapan tidak ditemukan |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Pesan berhasil dikirim.",
+    "data": {
+      "id": "msg-new-1",
+      "conversationId": "conv-demo-seed-1",
+      "senderId": "user-learner-demo",
+      "type": "text",
+      "content": "Halo Kak Nadia, apakah Kamis pukul 19:00 WIB kosong?",
+      "createdAt": 1795600000000
+    }
+  }
+  ```
+}

@@ -1,0 +1,53 @@
+meta {
+  name: Mulai Pembayaran QRIS
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseURL}}/api/bookings/:booking_id/payment/start
+  body: json
+  auth: inherit
+}
+
+params:path {
+  booking_id: bk-demo-1
+}
+
+body:json {
+  {
+    "actor_user_id": "user-learner-demo"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Memastikan sesi sudah berstatus `accepted` dan belum lunas (`ALREADY_PAID`), lalu menyiapkan data pembayaran QRIS.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `actor_user_id` | ID mahasiswa pemesan |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Panel QRIS siap ditampilkan |
+  | `409` | Sesi belum diterima (`NOT_ACCEPTED`) atau sudah lunas (`ALREADY_PAID`) |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Silakan lakukan pembayaran melalui QRIS.",
+    "data": {
+      "id": "pay-bk-demo-1",
+      "bookingId": "bk-demo-1",
+      "amount": 45000,
+      "status": "unpaid"
+    }
+  }
+  ```
+}

@@ -1,0 +1,56 @@
+meta {
+  name: Kirim Bukti Pembayaran
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseURL}}/api/bookings/:booking_id/payment/proof
+  body: json
+  auth: inherit
+}
+
+params:path {
+  booking_id: bk-demo-1
+}
+
+body:json {
+  {
+    "actor_user_id": "user-learner-demo",
+    "proof_name": "bukti-qris-bima.jpg"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+  forwardAuthorizationHeader: false
+}
+
+docs {
+  Mencatat bukti pembayaran QRIS dari mahasiswa dan mengubah status pembayaran menjadi `pending_verification` untuk diperiksa admin.
+  
+  | Field | Nilai |
+  |-------|-------|
+  | `actor_user_id` | ID mahasiswa pemesan |
+  | `proof_name` | Nama file bukti transfer QRIS |
+  
+  | Kode | Kapan |
+  |------|-------|
+  | `200` | Bukti pembayaran berhasil dikirim (`pending_verification`) |
+  | `409` | Bukti sudah pernah dikirim atau pembayaran sudah lunas |
+  
+  ```json
+  {
+    "success": true,
+    "message": "Bukti pembayaran berhasil dikirim dan menunggu verifikasi.",
+    "data": {
+      "id": "pay-bk-demo-1",
+      "bookingId": "bk-demo-1",
+      "amount": 45000,
+      "status": "pending_verification",
+      "proofName": "bukti-qris-bima.jpg"
+    }
+  }
+  ```
+}
