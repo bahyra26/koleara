@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/features/auth/useAuth";
+import { useConvexConnected } from "@/features/demo/DemoStoreProvider";
 
 export function DemoBanner() {
   const router = useRouter();
   const { user, resetDemo } = useAuth();
+  const convexConnected = useConvexConnected();
   const [confirming, setConfirming] = useState(false);
   const [resetNotice, setResetNotice] = useState(false);
 
@@ -28,9 +30,15 @@ export function DemoBanner() {
     >
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="solid">Mode Demo — Frontend Prototype</Badge>
+          <Badge variant="solid">
+            {convexConnected
+              ? "Mode Demo — Convex Backend Aktif"
+              : "Mode Demo — Frontend Prototype"}
+          </Badge>
           <span className="text-neutral-600">
-            Data lokal (localStorage), tanpa backend/pembayaran nyata.
+            {convexConnected
+              ? "Tersinkronisasi real-time dengan database Convex."
+              : "Data lokal (localStorage), tanpa backend/pembayaran nyata."}
           </span>
           {user ? (
             <span className="text-neutral-800">

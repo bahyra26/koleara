@@ -1,5 +1,6 @@
 import type { Role, ServiceResult, User } from "@/lib/contracts";
 import {
+  getConvexMutationHandlers,
   getDemoStateSnapshot,
   resetDemoStore,
   updateDemoState,
@@ -161,6 +162,15 @@ export const authService = {
       };
     });
 
+    if (result.ok) {
+      getConvexMutationHandlers()?.verifyDemoOtp({
+        email: emailCheck.normalized,
+        otp: otpCheck.normalized,
+        mode: params.mode,
+        name: trimmedName || undefined,
+      });
+    }
+
     return result;
   },
 
@@ -204,5 +214,6 @@ export const authService = {
 
   resetDemo(): void {
     resetDemoStore();
+    getConvexMutationHandlers()?.resetDemoData();
   },
 };

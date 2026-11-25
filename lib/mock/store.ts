@@ -11,6 +11,111 @@ let clientHydrated = false;
 
 const listeners = new Set<() => void>();
 
+export type RemoteCollections = Pick<
+  DemoState,
+  | "users"
+  | "courses"
+  | "tutors"
+  | "tutorApplications"
+  | "conversations"
+  | "messages"
+  | "bookings"
+  | "payments"
+>;
+
+export type ConvexMutationHandlers = {
+  verifyDemoOtp: (args: {
+    email: string;
+    otp: string;
+    mode: "login" | "signup";
+    name?: string;
+  }) => void;
+  resetDemoData: () => void;
+  submitApplication: (args: {
+    appId: string;
+    userId: string;
+    name: string;
+    courseIds: string[];
+    topics: string[];
+    bio: string;
+    hourlyRate: number;
+    slots: string[];
+  }) => void;
+  getOrCreateConversation: (args: {
+    learnerId: string;
+    tutorId: string;
+  }) => void;
+  sendMessage: (args: {
+    appId: string;
+    conversationId: string;
+    senderId: string;
+    content: string;
+  }) => void;
+  markRead: (args: { conversationId: string; readerId: string }) => void;
+  createOffer: (args: {
+    bookingAppId: string;
+    messageAppId: string;
+    conversationId: string;
+    actorUserId: string;
+    courseId: string;
+    topic: string;
+    startAt: number;
+    price: number;
+    meetingMode?: "online" | "offline_its";
+    brief?: string;
+  }) => void;
+  acceptOffer: (args: { bookingId: string; actorUserId: string }) => void;
+  declineOffer: (args: { bookingId: string; actorUserId: string }) => void;
+  startPayment: (args: { bookingId: string; actorUserId: string }) => void;
+  submitDemoProof: (args: {
+    bookingId: string;
+    actorUserId: string;
+    proofName?: string;
+  }) => void;
+  simulateVerification: (args: {
+    bookingId: string;
+    decision: "approve" | "reject";
+  }) => void;
+};
+
+let convexHandlers: ConvexMutationHandlers | null = null;
+
+export function registerConvexMutationHandlers(
+  handlers: ConvexMutationHandlers | null
+): void {
+  convexHandlers = handlers;
+  notifyListeners();
+}
+
+export function getConvexMutationHandlers(): ConvexMutationHandlers | null {
+  return convexHandlers;
+}
+
+export function getConvexConnectedSnapshot(): boolean {
+  return convexHandlers !== null;
+}
+
+export function getConvexConnectedServerSnapshot(): boolean {
+  return false;
+}
+
+export function applyRemoteCollections(remote: RemoteCollections): void {
+  const next: DemoState = {
+    ...currentState,
+    users: remote.users,
+    courses: remote.courses,
+    tutors: remote.tutors,
+    tutorApplications: remote.tutorApplications,
+    conversations: remote.conversations,
+    messages: remote.messages,
+    bookings: remote.bookings,
+    payments: remote.payments,
+  };
+  currentState = next;
+  writePersistedState(next);
+  notifyListeners();
+}
+
 function notifyListeners() {
   listeners.forEach((listener) => listener());
 }

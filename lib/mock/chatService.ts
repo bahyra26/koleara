@@ -6,6 +6,7 @@ import type {
 } from "@/lib/contracts";
 import {
   createSyntheticId,
+  getConvexMutationHandlers,
   getDemoStateSnapshot,
   updateDemoState,
 } from "@/lib/mock/store";
@@ -60,6 +61,13 @@ export const chatService = {
         conversations: [conversation, ...prev.conversations],
       };
     });
+
+    if (result.ok) {
+      getConvexMutationHandlers()?.getOrCreateConversation({
+        learnerId,
+        tutorId,
+      });
+    }
 
     return result;
   },
@@ -136,6 +144,7 @@ export const chatService = {
       ok: false,
       error: "Percakapan tidak ditemukan.",
     };
+    let createdMessage: Message | null = null;
 
     updateDemoState((prev) => {
       const conversation = prev.conversations.find(
@@ -165,6 +174,7 @@ export const chatService = {
         content: trimmed,
         createdAt: now,
       };
+      createdMessage = message;
       result = { ok: true, data: message };
       return {
         ...prev,
@@ -175,10 +185,21 @@ export const chatService = {
       };
     });
 
+    if (createdMessage) {
+      const msg: Message = createdMessage;
+      getConvexMutationHandlers()?.sendMessage({
+        appId: msg.id,
+        conversationId: msg.conversationId,
+        senderId: msg.senderId,
+        content: msg.content ?? trimmed,
+      });
+    }
+
     return result;
   },
 
   markRead(conversationId: string, readerId: string): void {
+    let didMark = false;
     updateDemoState((prev) => {
       const hasUnread = prev.messages.some(
         (m) =>
@@ -187,6 +208,7 @@ export const chatService = {
           !m.readAt
       );
       if (!hasUnread) return prev;
+      didMark = true;
 
       const now = Date.now();
       return {
@@ -200,5 +222,9 @@ export const chatService = {
         ),
       };
     });
+
+    if (didMark) {
+      getConvexMutationHandlers()?.markRead({ conversationId, readerId });
+    }
   },
 };

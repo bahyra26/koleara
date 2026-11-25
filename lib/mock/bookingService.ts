@@ -7,6 +7,7 @@ import type {
 } from "@/lib/contracts";
 import {
   createSyntheticId,
+  getConvexMutationHandlers,
   getDemoStateSnapshot,
   updateDemoState,
 } from "@/lib/mock/store";
@@ -51,6 +52,8 @@ export const bookingService = {
       ok: false,
       error: "Percakapan tidak ditemukan.",
     };
+    let createdBooking: Booking | null = null;
+    let createdOfferMessageId: string | null = null;
 
     updateDemoState((prev) => {
       const conversation = prev.conversations.find(
@@ -100,6 +103,8 @@ export const bookingService = {
         createdAt: now,
       };
 
+      createdBooking = booking;
+      createdOfferMessageId = offerMessage.id;
       result = { ok: true, data: booking };
       return {
         ...prev,
@@ -110,6 +115,22 @@ export const bookingService = {
         ),
       };
     });
+
+    if (createdBooking) {
+      const b: Booking = createdBooking;
+      getConvexMutationHandlers()?.createOffer({
+        bookingAppId: b.id,
+        messageAppId: createdOfferMessageId ?? `msg-offer-${b.id}`,
+        conversationId: b.conversationId,
+        actorUserId: params.actorUserId,
+        courseId: b.courseId,
+        topic: b.topic,
+        startAt: b.startAt,
+        price: b.price,
+        meetingMode: b.meetingMode,
+        brief: b.brief,
+      });
+    }
 
     return result;
   },
@@ -209,6 +230,13 @@ export const bookingService = {
       };
     });
 
+    if (result.ok) {
+      getConvexMutationHandlers()?.acceptOffer({
+        bookingId: params.bookingId,
+        actorUserId: params.actorUserId,
+      });
+    }
+
     return result;
   },
 
@@ -251,6 +279,13 @@ export const bookingService = {
         ),
       };
     });
+
+    if (result.ok) {
+      getConvexMutationHandlers()?.declineOffer({
+        bookingId: params.bookingId,
+        actorUserId: params.actorUserId,
+      });
+    }
 
     return result;
   },

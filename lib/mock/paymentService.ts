@@ -1,5 +1,9 @@
 import type { CheckoutViewData, Payment, ServiceResult } from "@/lib/contracts";
-import { getDemoStateSnapshot, updateDemoState } from "@/lib/mock/store";
+import {
+  getConvexMutationHandlers,
+  getDemoStateSnapshot,
+  updateDemoState,
+} from "@/lib/mock/store";
 
 // shortcut: demo trusts caller-supplied actorUserId and exposes client simulateVerification; replace with admin-only Convex mutations
 export const paymentService = {
@@ -91,6 +95,13 @@ export const paymentService = {
       };
     });
 
+    if (result.ok) {
+      getConvexMutationHandlers()?.startPayment({
+        bookingId: params.bookingId,
+        actorUserId: params.actorUserId,
+      });
+    }
+
     return result;
   },
 
@@ -163,6 +174,14 @@ export const paymentService = {
       };
     });
 
+    if (result.ok) {
+      getConvexMutationHandlers()?.submitDemoProof({
+        bookingId: params.bookingId,
+        actorUserId: params.actorUserId,
+        proofName: params.proofName,
+      });
+    }
+
     return result;
   },
 
@@ -226,6 +245,13 @@ export const paymentService = {
         ),
       };
     });
+
+    if (result.ok) {
+      getConvexMutationHandlers()?.simulateVerification({
+        bookingId: params.bookingId,
+        decision: params.decision,
+      });
+    }
 
     return result;
   },

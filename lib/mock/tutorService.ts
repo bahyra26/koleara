@@ -8,6 +8,7 @@ import type {
 } from "@/lib/contracts";
 import {
   createSyntheticId,
+  getConvexMutationHandlers,
   getDemoStateSnapshot,
   updateDemoState,
 } from "@/lib/mock/store";
@@ -193,6 +194,8 @@ export const tutorService = {
       error: "Silakan login demo terlebih dahulu sebelum mendaftar jadi tutor.",
     };
 
+    let createdApplication: TutorApplication | null = null;
+
     updateDemoState((prev) => {
       const user = prev.users.find((u) => u.id === input.userId);
       if (!user) return prev;
@@ -209,12 +212,27 @@ export const tutorService = {
         status: "pending",
         createdAt: Date.now(),
       };
+      createdApplication = application;
       result = { ok: true, data: application };
       return {
         ...prev,
         tutorApplications: [application, ...prev.tutorApplications],
       };
     });
+
+    if (createdApplication) {
+      const app: TutorApplication = createdApplication;
+      getConvexMutationHandlers()?.submitApplication({
+        appId: app.id,
+        userId: app.userId,
+        name: app.name,
+        courseIds: app.courseIds,
+        topics: app.topics,
+        bio: app.bio,
+        hourlyRate: app.hourlyRate,
+        slots: app.slots,
+      });
+    }
 
     return result;
   },
