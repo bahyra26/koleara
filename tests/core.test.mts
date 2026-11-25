@@ -5,7 +5,7 @@ import {
   parseWibDateTimeLocal,
   toWibDateTimeLocalValue,
 } from "@/lib/formatters";
-import { calculateBriefMatchScore } from "@/lib/matching";
+import { calculateBriefMatchScore, rankVerifiedTutors } from "@/lib/matching";
 import {
   authService,
   bookingService,
@@ -17,6 +17,8 @@ import {
   resetDemoStore,
   tutorService,
 } from "@/lib/mock";
+import { applyRemoteCollections, getDemoStateSnapshot } from "@/lib/mock/store";
+import { DELETE, GET, PATCH, POST } from "@/app/api/[...slug]/route";
 import {
   sanitizeReturnPath,
   validateDemoOtp,
@@ -374,5 +376,202 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
     assert.equal(tutorC.budgetScore, 78.6);
     assert.equal(tutorC.scheduleScore, 66.7);
     assert.equal(tutorC.totalScore, 70.4);
+  });
+
+  it("enforces matching tie-breakers, searched course label, and negative budget guard", () => {
+    assert.equal(tutorService.search({ maxBudget: -1 }).length, 0);
+
+    const kalkulusResults = tutorService.search({
+      courseId: "course-kalkulus-1",
+    });
+    const dimas = kalkulusResults.find((r) => r.tutor.id === "tutor-dimas");
+    assert.ok(dimas);
+    assert.equal(dimas.matchReasons.includes("Kalkulus 1 umum"), true);
+
+    const tied = rankVerifiedTutors(
+      [
+        {
+          id: "tutor-z",
+          userId: "u-z",
+          name: "Zeta",
+          department: "Matematika",
+          cohort: 2023,
+          bio: "Bio tutor cukup panjang.",
+          courseIds: ["course-kalkulus-1"],
+          topics: ["Turunan"],
+          hourlyRate: 40000,
+          verified: true,
+          badge: "grade",
+          rating: 4.5,
+          slots: ["Senin 19:00 WIB"],
+        },
+        {
+          id: "tutor-a",
+          userId: "u-a",
+          name: "Alpha",
+          department: "Matematika",
+          cohort: 2023,
+          bio: "Bio tutor cukup panjang.",
+          courseIds: ["course-kalkulus-1"],
+          topics: ["Turunan"],
+          hourlyRate: 40000,
+          verified: true,
+          badge: "grade",
+          rating: 4.5,
+          slots: ["Senin 19:00 WIB"],
+        },
+      ],
+      getDemoStateSnapshot().courses,
+      { topic: "Turunan" }
+    );
+    assert.equal(tied[0]?.tutor.id, "tutor-a");
+    assert.equal(tied[1]?.tutor.id, "tutor-z");
+  });
+
+  it("preserves optimistic active user across remote state sync and enforces participant/course guards", () => {
+    const signup = authService.verifyDemoOtp({
+      email: "5025231999@student.its.ac.id",
+      otp: "123456",
+      mode: "signup",
+      name: "Rayyan Tester",
+    });
+    assert.equal(signup.ok, true);
+    if (!signup.ok) return;
+
+    // Simulate stale remote snapshot arriving before signup mutation settles
+    const seedSnapshot = getDemoStateSnapshot();
+    applyRemoteCollections({
+      users: seedSnapshot.users.filter((u) => u.id !== signup.data.id),
+      courses: seedSnapshot.courses,
+      tutors: seedSnapshot.tutors,
+      tutorApplications: seedSnapshot.tutorApplications,
+      conversations: seedSnapshot.conversations,
+      messages: seedSnapshot.messages,
+      bookings: seedSnapshot.bookings,
+      payments: seedSnapshot.payments,
+    });
+    assert.equal(authService.getSession()?.id, signup.data.id);
+
+    // Reject unknown course in tutor application
+    const badCourseApp = tutorService.submitApplication({
+      userId: signup.data.id,
+      name: "Rayyan Tester",
+      courseIds: ["course-tidak-ada"],
+      topics: ["Turunan"],
+      bio: "Bio pengalaman mengajar minimal lima belas karakter.",
+      hourlyRateRaw: 40000,
+      slots: ["Senin 19:00 WIB"],
+    });
+    assert.equal(badCourseApp.ok, false);
+
+    // Reject markRead from non-participant or empty readerId
+    assert.equal(chatService.markRead("conv-demo-seed-1", "").ok, false);
+    assert.equal(
+      chatService.markRead("conv-demo-seed-1", signup.data.id).ok,
+      false
+    );
+  });
+
+  it("hardens REST API routes against empty decision auto-approve, missing user_id, invalid params, and admin key bypass", async () => {
+    const prevConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+    process.env.NEXT_PUBLIC_CONVEX_URL = "http://127.0.0.1:1";
+
+    try {
+      // 1. Missing user_id on /api/conversations rejected (400), not leaked
+      const convNoUser = await GET(
+        new Request("http://localhost:3000/api/conversations"),
+        { params: Promise.resolve({ slug: ["conversations"] }) }
+      );
+      assert.equal(convNoUser.status, 400);
+
+      // 2. Negative max_budget rejected (400), not silently ignored
+      const badBudget = await GET(
+        new Request("http://localhost:3000/api/tutors?max_budget=-5000"),
+        { params: Promise.resolve({ slug: ["tutors"] }) }
+      );
+      assert.equal(badBudget.status, 400);
+
+      // 3. Empty body on payment/status rejected (400), never auto-approved
+      const emptyDecision = await PATCH(
+        new Request(
+          "http://localhost:3000/api/bookings/bk-demo-1/payment/status",
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }
+        ),
+        {
+          params: Promise.resolve({
+            slug: ["bookings", "bk-demo-1", "payment", "status"],
+          }),
+        }
+      );
+      assert.equal(emptyDecision.status, 400);
+
+      // 4. Malformed JSON rejected (400)
+      const brokenJson = await POST(
+        new Request("http://localhost:3000/api/auth/request-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{broken",
+        }),
+        { params: Promise.resolve({ slug: ["auth", "request-otp"] }) }
+      );
+      assert.equal(brokenJson.status, 400);
+
+      // 5. Fallback /api/admin/metrics returns all 13 schema fields
+      const metricsRes = await GET(
+        new Request("http://localhost:3000/api/admin/metrics"),
+        { params: Promise.resolve({ slug: ["admin", "metrics"] }) }
+      );
+      assert.equal(metricsRes.status, 200);
+      const metricsJson = (await metricsRes.json()) as {
+        data: Record<string, unknown>;
+      };
+      assert.equal(typeof metricsJson.data.acceptanceRatePercent, "number");
+      assert.equal(typeof metricsJson.data.paymentCompletionRatePercent, "number");
+      assert.equal(typeof metricsJson.data.averageTutorRating, "number");
+      assert.equal(typeof metricsJson.data.totalRevenueIdr, "number");
+
+      // 6. KOLEARA_ADMIN_KEY enforcement on admin & reset endpoints
+      process.env.KOLEARA_ADMIN_KEY = "rahasia-admin-koleara";
+      try {
+        const deniedMetrics = await GET(
+          new Request("http://localhost:3000/api/admin/metrics"),
+          { params: Promise.resolve({ slug: ["admin", "metrics"] }) }
+        );
+        assert.equal(deniedMetrics.status, 401);
+
+        const deniedDelete = await DELETE(
+          new Request(
+            "http://localhost:3000/api/admin/tutor-applications/app-1",
+            { method: "DELETE" }
+          ),
+          {
+            params: Promise.resolve({
+              slug: ["admin", "tutor-applications", "app-1"],
+            }),
+          }
+        );
+        assert.equal(deniedDelete.status, 401);
+
+        const allowedMetrics = await GET(
+          new Request("http://localhost:3000/api/admin/metrics", {
+            headers: { "x-admin-key": "rahasia-admin-koleara" },
+          }),
+          { params: Promise.resolve({ slug: ["admin", "metrics"] }) }
+        );
+        assert.equal(allowedMetrics.status, 200);
+      } finally {
+        delete process.env.KOLEARA_ADMIN_KEY;
+      }
+    } finally {
+      if (prevConvexUrl === undefined) {
+        delete process.env.NEXT_PUBLIC_CONVEX_URL;
+      } else {
+        process.env.NEXT_PUBLIC_CONVEX_URL = prevConvexUrl;
+      }
+    }
   });
 });

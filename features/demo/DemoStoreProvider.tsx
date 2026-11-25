@@ -70,42 +70,48 @@ function ConvexRealtimeBridge() {
   const seedingRequestedRef = useRef(false);
 
   useEffect(() => {
+    const safeSync = (promise: Promise<unknown>) => {
+      promise.catch((err) => {
+        console.warn("[Convex sync]", err);
+      });
+    };
+
     registerConvexMutationHandlers({
       verifyDemoOtp: (args) => {
-        void verifyDemoOtp(args);
+        safeSync(verifyDemoOtp(args));
       },
       resetDemoData: () => {
-        void resetDemoData({});
+        safeSync(resetDemoData({}));
       },
       submitApplication: (args) => {
-        void submitApplication(args);
+        safeSync(submitApplication(args));
       },
       getOrCreateConversation: (args) => {
-        void getOrCreateConversation(args);
+        safeSync(getOrCreateConversation(args));
       },
       sendMessage: (args) => {
-        void sendMessage(args);
+        safeSync(sendMessage(args));
       },
       markRead: (args) => {
-        void markRead(args);
+        safeSync(markRead(args));
       },
       createOffer: (args) => {
-        void createOffer(args);
+        safeSync(createOffer(args));
       },
       acceptOffer: (args) => {
-        void acceptOffer(args);
+        safeSync(acceptOffer(args));
       },
       declineOffer: (args) => {
-        void declineOffer(args);
+        safeSync(declineOffer(args));
       },
       startPayment: (args) => {
-        void startPayment(args);
+        safeSync(startPayment(args));
       },
       submitDemoProof: (args) => {
-        void submitDemoProof(args);
+        safeSync(submitDemoProof(args));
       },
       simulateVerification: (args) => {
-        void simulateVerification(args);
+        safeSync(simulateVerification(args));
       },
     });
 
@@ -132,7 +138,10 @@ function ConvexRealtimeBridge() {
     if (!remoteState.seeded) {
       if (!seedingRequestedRef.current) {
         seedingRequestedRef.current = true;
-        void ensureSeeded({});
+        ensureSeeded({}).catch((err) => {
+          seedingRequestedRef.current = false;
+          console.warn("[Convex seed]", err);
+        });
       }
       return;
     }

@@ -2,6 +2,12 @@ import type { MeetingMode } from "@/lib/contracts";
 
 export const ITS_STUDENT_EMAIL_REGEX = /^\d{10}@student\.its\.ac\.id$/;
 export const DEMO_OTP_CODE = "123456";
+export const MAX_HOURLY_RATE_IDR = 10_000_000;
+export const MAX_NAME_LENGTH = 100;
+export const MAX_BIO_LENGTH = 1000;
+export const MAX_TOPIC_LENGTH = 120;
+export const MAX_BRIEF_LENGTH = 500;
+export const MAX_MESSAGE_LENGTH = 2000;
 
 export function normalizeItsEmail(raw: string): string {
   return raw.trim().toLowerCase();
@@ -76,6 +82,12 @@ export function validatePositiveIntegerIdr(
     return {
       valid: false,
       error: `${fieldLabel} harus lebih dari Rp0.`,
+    };
+  }
+  if (parsed > MAX_HOURLY_RATE_IDR) {
+    return {
+      valid: false,
+      error: `${fieldLabel} maksimal Rp10.000.000.`,
     };
   }
   return { valid: true, value: parsed };
@@ -157,6 +169,12 @@ export function validateOfferInput(input: {
 
   if (!input.topic.trim()) {
     errors.topic = "Topik bahasan wajib diisi.";
+  } else if (input.topic.trim().length > MAX_TOPIC_LENGTH) {
+    errors.topic = `Topik bahasan maksimal ${MAX_TOPIC_LENGTH} karakter.`;
+  }
+
+  if (input.brief && input.brief.trim().length > MAX_BRIEF_LENGTH) {
+    errors.brief = `Catatan sesi maksimal ${MAX_BRIEF_LENGTH} karakter.`;
   }
 
   if (input.startAt === null || !Number.isFinite(input.startAt)) {
@@ -193,6 +211,8 @@ export function validateTutorApplicationInput(input: {
 
   if (!input.name.trim() || input.name.trim().length < 2) {
     errors.name = "Nama lengkap minimal 2 karakter.";
+  } else if (input.name.trim().length > MAX_NAME_LENGTH) {
+    errors.name = `Nama lengkap maksimal ${MAX_NAME_LENGTH} karakter.`;
   }
 
   if (input.courseIds.length === 0) {
@@ -205,6 +225,8 @@ export function validateTutorApplicationInput(input: {
 
   if (!input.bio.trim() || input.bio.trim().length < 15) {
     errors.bio = "Bio singkat minimal 15 karakter.";
+  } else if (input.bio.trim().length > MAX_BIO_LENGTH) {
+    errors.bio = `Bio singkat maksimal ${MAX_BIO_LENGTH} karakter.`;
   }
 
   const rateCheck = validatePositiveIntegerIdr(

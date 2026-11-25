@@ -9,7 +9,12 @@ let useAnonymousMode = true;
 if (existsSync(envLocalPath)) {
   const content = readFileSync(envLocalPath, "utf8");
   const match = content.match(/^CONVEX_DEPLOYMENT=(.+)$/m);
-  if (match && !match[1].trim().startsWith("anonymous:")) {
+  const deploymentVal = match ? match[1].trim() : "";
+  if (
+    deploymentVal &&
+    !deploymentVal.startsWith("anonymous:") &&
+    !deploymentVal.startsWith("local:")
+  ) {
     useAnonymousMode = false;
   }
 }

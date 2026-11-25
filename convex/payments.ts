@@ -4,6 +4,7 @@ import {
   bookingObjectValidator,
   courseObjectValidator,
   paymentObjectValidator,
+  sanitizeProofFileName,
   serviceResultValidator,
   tutorObjectValidator,
   userObjectValidator,
@@ -25,26 +26,26 @@ export const getCheckoutByBooking = query({
     const booking = await ctx.db
       .query("bookings")
       .withIndex("by_appId", (q) => q.eq("appId", args.bookingId))
-      .unique();
+      .first();
     if (!booking) return null;
 
     const [tutor, learner, course, paymentRow] = await Promise.all([
       ctx.db
         .query("tutors")
         .withIndex("by_appId", (q) => q.eq("appId", booking.tutorId))
-        .unique(),
+        .first(),
       ctx.db
         .query("users")
         .withIndex("by_appId", (q) => q.eq("appId", booking.learnerId))
-        .unique(),
+        .first(),
       ctx.db
         .query("courses")
         .withIndex("by_appId", (q) => q.eq("appId", booking.courseId))
-        .unique(),
+        .first(),
       ctx.db
         .query("payments")
         .withIndex("by_bookingId", (q) => q.eq("bookingId", booking.appId))
-        .unique(),
+        .first(),
     ]);
 
     if (!tutor || !learner || !course) return null;
@@ -118,6 +119,7 @@ export const getCheckoutByBooking = query({
   },
 });
 
+// shortcut: demo trusts caller-supplied actorUserId and exposes simulateVerification for checkout testing
 export const startPayment = mutation({
   args: {
     bookingId: v.string(),
@@ -128,14 +130,19 @@ export const startPayment = mutation({
     const booking = await ctx.db
       .query("bookings")
       .withIndex("by_appId", (q) => q.eq("appId", args.bookingId))
-      .unique();
+      .first();
     if (!booking) {
-      return { ok: false as const, error: "Data pemesanan tidak ditemukan." };
+      return {
+        ok: false as const,
+        code: "BOOKING_NOT_FOUND",
+        error: "Data pemesanan tidak ditemukan.",
+      };
     }
 
     if (booking.learnerId !== args.actorUserId) {
       return {
         ok: false as const,
+        code: "FORBIDDEN",
         error: "Hanya mahasiswa pemesan yang dapat membuka pembayaran ini.",
       };
     }
@@ -161,7 +168,7 @@ export const startPayment = mutation({
     const existing = await ctx.db
       .query("payments")
       .withIndex("by_bookingId", (q) => q.eq("bookingId", booking.appId))
-      .unique();
+      .first();
 
     if (existing) {
       if (existing.status === "paid") {
@@ -217,14 +224,19 @@ export const submitDemoProof = mutation({
     const booking = await ctx.db
       .query("bookings")
       .withIndex("by_appId", (q) => q.eq("appId", args.bookingId))
-      .unique();
+      .first();
     if (!booking) {
-      return { ok: false as const, error: "Data pemesanan tidak ditemukan." };
+      return {
+        ok: false as const,
+        code: "BOOKING_NOT_FOUND",
+        error: "Data pemesanan tidak ditemukan.",
+      };
     }
 
     if (booking.learnerId !== args.actorUserId) {
       return {
         ok: false as const,
+        code: "FORBIDDEN",
         error: "Hanya mahasiswa pemesan yang dapat mengirim bukti demo.",
       };
     }
@@ -232,6 +244,7 @@ export const submitDemoProof = mutation({
     if (booking.status !== "accepted") {
       return {
         ok: false as const,
+        code: "NOT_ACCEPTED",
         error: "Pemesanan ini tidak dalam status siap dibayar.",
       };
     }
@@ -239,24 +252,24 @@ export const submitDemoProof = mutation({
     const existing = await ctx.db
       .query("payments")
       .withIndex("by_bookingId", (q) => q.eq("bookingId", booking.appId))
-      .unique();
+      .first();
 
     if (existing?.status === "paid") {
       return {
         ok: false as const,
+        code: "ALREADY_PAID",
         error: "Pembayaran ini sudah terverifikasi (demo).",
       };
     }
     if (existing?.status === "pending_verification") {
       return {
         ok: false as const,
+        code: "ALREADY_SUBMITTED",
         error: "Bukti demo sudah dikirim dan sedang menunggu verifikasi.",
       };
     }
 
-    const safeFileName = (
-      (args.proofName ?? "").trim() || "bukti-qris-demo.jpg"
-    ).slice(0, 120);
+    const safeFileName = sanitizeProofFileName(args.proofName);
     const now = Date.now();
     const appId = existing?.appId ?? `pay-${booking.appId}`;
 
@@ -303,20 +316,28 @@ export const simulateVerification = mutation({
       ctx.db
         .query("bookings")
         .withIndex("by_appId", (q) => q.eq("appId", args.bookingId))
-        .unique(),
+        .first(),
       ctx.db
         .query("payments")
         .withIndex("by_bookingId", (q) => q.eq("bookingId", args.bookingId))
-        .unique(),
+        .first(),
     ]);
 
     if (!booking || !payment) {
-      return { ok: false as const, error: "Data pembayaran tidak ditemukan." };
-    }
-
-    if (payment.status !== "pending_verification") {
       return {
         ok: false as const,
+        code: "PAYMENT_NOT_FOUND",
+        error: "Data pembayaran tidak ditemukan.",
+      };
+    }
+
+    if (
+      payment.status !== "pending_verification" ||
+      booking.status !== "accepted"
+    ) {
+      return {
+        ok: false as const,
+        code: "INVALID_STATE",
         error:
           "Simulasi verifikasi hanya dapat dijalankan saat status Menunggu Verifikasi.",
       };

@@ -1,8 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { serviceResultValidator, userObjectValidator } from "./validators";
+import {
+  MAX_NAME_LENGTH,
+  serviceResultValidator,
+  userObjectValidator,
+} from "./validators";
 
 const ITS_STUDENT_EMAIL_REGEX = /^\d{10}@student\.its\.ac\.id$/;
+// shortcut: demo auth uses static OTP 123456 without email delivery; replace with Convex Auth + ITS SMTP OTP before real user launch
 const DEMO_OTP_CODE = "123456";
 
 function normalizeItsEmail(raw: string): string {
@@ -30,7 +35,7 @@ export const getUserById = query({
     const row = await ctx.db
       .query("users")
       .withIndex("by_appId", (q) => q.eq("appId", args.userId))
-      .unique();
+      .first();
     if (!row) return null;
     return {
       id: row.appId,
@@ -74,7 +79,7 @@ export const requestDemoOtp = mutation({
     const existing = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", normalized))
-      .unique();
+      .first();
 
     if (args.mode === "login") {
       if (!existing) {
@@ -92,11 +97,11 @@ export const requestDemoOtp = mutation({
     }
 
     const trimmedName = (args.name ?? "").trim();
-    if (trimmedName.length < 2) {
+    if (trimmedName.length < 2 || trimmedName.length > MAX_NAME_LENGTH) {
       return {
         ok: false as const,
         code: "INVALID_NAME",
-        error: "Nama lengkap minimal 2 karakter.",
+        error: `Nama lengkap wajib 2–${MAX_NAME_LENGTH} karakter.`,
       };
     }
 
@@ -145,18 +150,21 @@ export const verifyDemoOtp = mutation({
     }
 
     const trimmedName = (args.name ?? "").trim();
-    if (args.mode === "signup" && trimmedName.length < 2) {
+    if (
+      args.mode === "signup" &&
+      (trimmedName.length < 2 || trimmedName.length > MAX_NAME_LENGTH)
+    ) {
       return {
         ok: false as const,
         code: "INVALID_NAME",
-        error: "Nama lengkap minimal 2 karakter.",
+        error: `Nama lengkap wajib 2–${MAX_NAME_LENGTH} karakter.`,
       };
     }
 
     const existing = await ctx.db
       .query("users")
       .withIndex("by_email", (q) => q.eq("email", normalized))
-      .unique();
+      .first();
 
     if (args.mode === "login") {
       if (!existing) {

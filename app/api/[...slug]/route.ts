@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import {
   authService,
   bookingService,
@@ -11,23 +11,49 @@ import {
 
 const CONVEX_URL =
   process.env.NEXT_PUBLIC_CONVEX_URL ?? "http://127.0.0.1:3210";
+const MAX_JSON_BODY_BYTES = 64 * 1024;
+
+let seedEnsured = false;
+let seedInFlight: Promise<void> | null = null;
+
+async function ensureConvexSeededOnce(): Promise<void> {
+  if (seedEnsured) return;
+  if (!seedInFlight) {
+    seedInFlight = fetch(`${CONVEX_URL}/api/mutation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: "seed:ensureSeeded",
+        args: {},
+        format: "json",
+      }),
+    })
+      .then((res) => {
+        if (res.ok) seedEnsured = true;
+      })
+      .catch(() => {
+        // Offline / fallback mode handled by caller
+      })
+      .finally(() => {
+        seedInFlight = null;
+      });
+  }
+  await seedInFlight;
+}
 
 async function callConvex(
   kind: "query" | "mutation",
   fnPath: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  options?: { skipEnsureSeed?: boolean }
 ): Promise<{ ok: true; value: unknown } | { ok: false }> {
   try {
-    if (fnPath !== "seed:ensureSeeded" && fnPath !== "seed:resetDemoData") {
-      await fetch(`${CONVEX_URL}/api/mutation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: "seed:ensureSeeded",
-          args: {},
-          format: "json",
-        }),
-      });
+    if (
+      !options?.skipEnsureSeed &&
+      fnPath !== "seed:ensureSeeded" &&
+      fnPath !== "seed:resetDemoData"
+    ) {
+      await ensureConvexSeededOnce();
     }
 
     const res = await fetch(`${CONVEX_URL}/api/${kind}`, {
@@ -56,17 +82,66 @@ async function callConvex(
   }
 }
 
-async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
+type BodyParseResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; response: Response };
+
+async function readJsonBody(request: Request): Promise<BodyParseResult> {
+  const declaredLen = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLen) && declaredLen > MAX_JSON_BODY_BYTES) {
+    return {
+      ok: false,
+      response: jsonError(
+        "Ukuran payload JSON melebihi batas 64 KB.",
+        413,
+        "PAYLOAD_TOO_LARGE"
+      ),
+    };
+  }
+
+  let text = "";
   try {
-    const text = await request.text();
-    if (!text.trim()) return {};
+    text = await request.text();
+  } catch {
+    return {
+      ok: false,
+      response: jsonError("Gagal membaca body request.", 400, "INVALID_BODY"),
+    };
+  }
+
+  if (Buffer.byteLength(text, "utf8") > MAX_JSON_BODY_BYTES) {
+    return {
+      ok: false,
+      response: jsonError(
+        "Ukuran payload JSON melebihi batas 64 KB.",
+        413,
+        "PAYLOAD_TOO_LARGE"
+      ),
+    };
+  }
+
+  if (!text.trim()) {
+    return { ok: true, data: {} };
+  }
+
+  try {
     const parsed: unknown = JSON.parse(text);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+      return { ok: true, data: parsed as Record<string, unknown> };
     }
-    return {};
+    return {
+      ok: false,
+      response: jsonError(
+        "Body JSON harus berupa objek.",
+        400,
+        "INVALID_JSON_OBJECT"
+      ),
+    };
   } catch {
-    return {};
+    return {
+      ok: false,
+      response: jsonError("Format JSON tidak valid.", 400, "INVALID_JSON"),
+    };
   }
 }
 
@@ -75,8 +150,8 @@ function jsonSuccess(
   data: unknown,
   status = 200,
   meta?: Record<string, unknown>
-) {
-  return NextResponse.json(
+): Response {
+  return Response.json(
     {
       success: true,
       message,
@@ -87,8 +162,8 @@ function jsonSuccess(
   );
 }
 
-function jsonError(message: string, status = 400, code?: string) {
-  return NextResponse.json(
+function jsonError(message: string, status = 400, code?: string): Response {
+  return Response.json(
     {
       success: false,
       message,
@@ -96,6 +171,141 @@ function jsonError(message: string, status = 400, code?: string) {
     },
     { status }
   );
+}
+
+function extractAdminKey(request: Request): string | undefined {
+  const headerKey = request.headers.get("x-admin-key")?.trim();
+  if (headerKey) return headerKey;
+  const authHeader = request.headers.get("authorization")?.trim();
+  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (token) return token;
+  }
+  return undefined;
+}
+
+// shortcut: admin routes allow keyless demo testing when KOLEARA_ADMIN_KEY is unset; set KOLEARA_ADMIN_KEY in prod to require x-admin-key / Bearer token
+function verifyAdminRequest(
+  request: Request
+): { ok: true; adminKey?: string } | { ok: false; response: Response } {
+  const expected = process.env.KOLEARA_ADMIN_KEY?.trim();
+  const provided = extractAdminKey(request);
+  if (!expected) {
+    return { ok: true, adminKey: provided };
+  }
+  if (!provided) {
+    return {
+      ok: false,
+      response: jsonError(
+        "Header autentikasi admin (x-admin-key) diperlukan.",
+        401,
+        "UNAUTHORIZED"
+      ),
+    };
+  }
+  const expectedBuf = Buffer.from(expected, "utf8");
+  const providedBuf = Buffer.from(provided, "utf8");
+  if (
+    expectedBuf.length !== providedBuf.length ||
+    !timingSafeEqual(expectedBuf, providedBuf)
+  ) {
+    return {
+      ok: false,
+      response: jsonError("Kunci admin tidak valid.", 401, "UNAUTHORIZED"),
+    };
+  }
+  return { ok: true, adminKey: provided };
+}
+
+function statusFromServiceCode(
+  code: string | undefined,
+  fallbackStatus: number
+): number {
+  switch (code) {
+    case "UNAUTHORIZED":
+      return 401;
+    case "FORBIDDEN":
+      return 403;
+    case "NOT_FOUND":
+    case "USER_NOT_FOUND":
+    case "TUTOR_NOT_FOUND":
+    case "COURSE_NOT_FOUND":
+    case "CONVERSATION_NOT_FOUND":
+    case "BOOKING_NOT_FOUND":
+    case "PAYMENT_NOT_FOUND":
+      return 404;
+    case "EMAIL_EXISTS":
+    case "CONFLICT":
+    case "SCHEDULE_CONFLICT":
+    case "ALREADY_ACCEPTED":
+    case "ALREADY_DECLINED":
+    case "ALREADY_PAID":
+    case "ALREADY_SUBMITTED":
+    case "NOT_ACCEPTED":
+    case "INVALID_STATE":
+      return 409;
+    case "OFFER_EXPIRED":
+    case "INVALID_INPUT":
+    case "INVALID_EMAIL":
+    case "INVALID_OTP":
+    case "INVALID_NAME":
+    case "INVALID_COURSE_FOR_TUTOR":
+    case "SELF_CHAT_NOT_ALLOWED":
+      return 400;
+    default:
+      return fallbackStatus;
+  }
+}
+
+function computeLocalPilotMetrics() {
+  const s = getDemoStateSnapshot();
+  const verifiedTutors = s.tutors.filter((t) => t.verified);
+  const totalBookings = s.bookings.length;
+  const acceptedOrPaidBookings = s.bookings.filter(
+    (b) => b.status === "accepted" || b.status === "paid"
+  ).length;
+  const paidBookings = s.bookings.filter((b) => b.status === "paid").length;
+
+  const acceptanceRatePercent =
+    totalBookings > 0
+      ? Math.round((acceptedOrPaidBookings / totalBookings) * 1000) / 10
+      : 0;
+  const paymentCompletionRatePercent =
+    acceptedOrPaidBookings > 0
+      ? Math.round((paidBookings / acceptedOrPaidBookings) * 1000) / 10
+      : 0;
+
+  const ratedTutors = verifiedTutors.filter(
+    (t) => typeof t.rating === "number"
+  );
+  const averageTutorRating =
+    ratedTutors.length > 0
+      ? Math.round(
+          (ratedTutors.reduce((acc, t) => acc + (t.rating ?? 0), 0) /
+            ratedTutors.length) *
+            100
+        ) / 100
+      : 0;
+
+  const totalRevenueIdr = s.payments
+    .filter((p) => p.status === "paid")
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  return {
+    totalUsers: s.users.length,
+    totalLearners: s.users.filter((u) => u.role === "learner").length,
+    totalVerifiedTutors: verifiedTutors.length,
+    pendingTutorApplications: s.tutorApplications.length,
+    totalConversations: s.conversations.length,
+    totalMessages: s.messages.length,
+    totalBookings,
+    acceptedOrPaidBookings,
+    paidBookings,
+    acceptanceRatePercent,
+    paymentCompletionRatePercent,
+    averageTutorRating,
+    totalRevenueIdr,
+  };
 }
 
 // ============================================================================
@@ -111,9 +321,15 @@ export async function GET(
 
   // 1. GET /api/health
   if (path === "health") {
+    const probe = await callConvex(
+      "query",
+      "tutors:listCourses",
+      {},
+      { skipEnsureSeed: true }
+    );
     return jsonSuccess("Layanan KOLEARA API aktif.", {
       status: "ok",
-      engine: "convex",
+      engine: probe.ok ? "convex" : "mock-fallback",
       timestamp: new Date().toISOString(),
     });
   }
@@ -121,6 +337,13 @@ export async function GET(
   // 2. GET /api/users
   if (path === "users") {
     const roleFilter = url.searchParams.get("role")?.trim();
+    if (roleFilter && roleFilter !== "learner" && roleFilter !== "tutor") {
+      return jsonError(
+        "Filter role harus bernilai learner atau tutor.",
+        400,
+        "INVALID_ROLE"
+      );
+    }
     const convexRes = await callConvex("query", "auth:listUsers", {});
     const users = (
       convexRes.ok
@@ -175,10 +398,20 @@ export async function GET(
     const topic = url.searchParams.get("topic") ?? undefined;
     const maxBudgetRaw =
       url.searchParams.get("max_budget") ?? url.searchParams.get("maxBudget");
-    const maxBudget =
-      maxBudgetRaw !== null && maxBudgetRaw.trim() !== ""
-        ? Number(maxBudgetRaw)
-        : null;
+
+    let maxBudget: number | null = null;
+    if (maxBudgetRaw !== null && maxBudgetRaw.trim() !== "") {
+      const parsedBudget = Number(maxBudgetRaw);
+      if (!Number.isFinite(parsedBudget) || parsedBudget < 0) {
+        return jsonError(
+          "Parameter max_budget harus berupa angka >= 0.",
+          400,
+          "INVALID_BUDGET"
+        );
+      }
+      maxBudget = parsedBudget;
+    }
+
     const scheduleQuery =
       url.searchParams.get("schedule") ??
       url.searchParams.get("scheduleQuery") ??
@@ -188,7 +421,7 @@ export async function GET(
       query,
       courseId,
       topic,
-      maxBudget: Number.isFinite(maxBudget) ? maxBudget : null,
+      maxBudget,
       scheduleQuery,
     });
 
@@ -198,7 +431,7 @@ export async function GET(
           query,
           courseId,
           topic,
-          maxBudget: Number.isFinite(maxBudget) ? maxBudget : null,
+          maxBudget,
           scheduleQuery,
         });
 
@@ -222,10 +455,18 @@ export async function GET(
 
   // 8. GET /api/tutor-applications
   if (path === "tutor-applications") {
-    const userId =
+    const userId = (
       url.searchParams.get("user_id") ??
       url.searchParams.get("userId") ??
-      "user-learner-demo";
+      ""
+    ).trim();
+    if (!userId) {
+      return jsonError(
+        "Query parameter user_id wajib diisi.",
+        400,
+        "USER_ID_REQUIRED"
+      );
+    }
     const convexRes = await callConvex("query", "tutors:listApplications", {
       userId,
     });
@@ -237,10 +478,18 @@ export async function GET(
 
   // 9. GET /api/conversations
   if (path === "conversations") {
-    const userId =
+    const userId = (
       url.searchParams.get("user_id") ??
       url.searchParams.get("userId") ??
-      "user-learner-demo";
+      ""
+    ).trim();
+    if (!userId) {
+      return jsonError(
+        "Query parameter user_id wajib diisi.",
+        400,
+        "USER_ID_REQUIRED"
+      );
+    }
     const convexRes = await callConvex("query", "chat:listConversations", {
       userId,
     });
@@ -304,31 +553,33 @@ export async function GET(
 
   // 13. GET /api/admin/metrics
   if (path === "admin/metrics") {
-    const convexRes = await callConvex("query", "metrics:getPilotMetrics", {});
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
+    const convexRes = await callConvex("query", "metrics:getPilotMetrics", {
+      ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
+    });
     if (convexRes.ok) {
       return jsonSuccess(
         "Ringkasan metrik pilot berhasil diambil.",
         convexRes.value
       );
     }
-    const s = getDemoStateSnapshot();
-    return jsonSuccess("Ringkasan metrik pilot berhasil diambil.", {
-      totalUsers: s.users.length,
-      totalLearners: s.users.filter((u) => u.role === "learner").length,
-      totalVerifiedTutors: s.tutors.filter((t) => t.verified).length,
-      pendingTutorApplications: s.tutorApplications.length,
-      totalConversations: s.conversations.length,
-      totalMessages: s.messages.length,
-      totalBookings: s.bookings.length,
-    });
+    return jsonSuccess(
+      "Ringkasan metrik pilot berhasil diambil.",
+      computeLocalPilotMetrics()
+    );
   }
 
   // 14. GET /api/admin/tutor-applications
   if (path === "admin/tutor-applications") {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
     const convexRes = await callConvex(
       "query",
       "admin:listPendingApplications",
-      {}
+      adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}
     );
     const pending = convexRes.ok
       ? convexRes.value
@@ -338,7 +589,14 @@ export async function GET(
 
   // 15. GET /api/admin/payments
   if (path === "admin/payments") {
-    const convexRes = await callConvex("query", "admin:listPendingPayments", {});
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
+    const convexRes = await callConvex(
+      "query",
+      "admin:listPendingPayments",
+      adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}
+    );
     const pending = convexRes.ok
       ? convexRes.value
       : getDemoStateSnapshot().payments.filter(
@@ -359,11 +617,24 @@ export async function POST(
 ) {
   const { slug } = await context.params;
   const path = slug.join("/");
-  const body = await readJsonBody(request);
+  const parsedBody = await readJsonBody(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.data;
 
   // 1. POST /api/auth/request-otp
   if (path === "auth/request-otp") {
-    const email = String(body.email ?? "");
+    const email = typeof body.email === "string" ? body.email : "";
+    if (
+      body.mode !== undefined &&
+      body.mode !== "login" &&
+      body.mode !== "signup"
+    ) {
+      return jsonError(
+        "Parameter mode harus bernilai login atau signup.",
+        400,
+        "INVALID_MODE"
+      );
+    }
     const mode = body.mode === "signup" ? "signup" : "login";
     const name = typeof body.name === "string" ? body.name : undefined;
 
@@ -382,13 +653,11 @@ export async function POST(
       : authService.requestDemoOtp({ email, mode, name });
 
     if (!res.ok) {
-      const status =
-        res.code === "USER_NOT_FOUND"
-          ? 404
-          : res.code === "EMAIL_EXISTS"
-            ? 409
-            : 400;
-      return jsonError(res.error ?? "Gagal meminta OTP.", status, res.code);
+      return jsonError(
+        res.error ?? "Gagal meminta OTP.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
     }
     return jsonSuccess("Kode OTP berhasil dikirim.", {
       email: res.data?.email,
@@ -398,8 +667,22 @@ export async function POST(
 
   // 2. POST /api/auth/verify-otp
   if (path === "auth/verify-otp") {
-    const email = String(body.email ?? "");
-    const otp = String(body.otp ?? "");
+    const email = typeof body.email === "string" ? body.email : "";
+    const otp =
+      typeof body.otp === "string" || typeof body.otp === "number"
+        ? String(body.otp)
+        : "";
+    if (
+      body.mode !== undefined &&
+      body.mode !== "login" &&
+      body.mode !== "signup"
+    ) {
+      return jsonError(
+        "Parameter mode harus bernilai login atau signup.",
+        400,
+        "INVALID_MODE"
+      );
+    }
     const mode = body.mode === "signup" ? "signup" : "login";
     const name = typeof body.name === "string" ? body.name : undefined;
 
@@ -419,13 +702,11 @@ export async function POST(
       : authService.verifyDemoOtp({ email, otp, mode, name });
 
     if (!res.ok) {
-      const status =
-        res.code === "USER_NOT_FOUND"
-          ? 404
-          : res.code === "EMAIL_EXISTS"
-            ? 409
-            : 400;
-      return jsonError(res.error ?? "Verifikasi OTP gagal.", status, res.code);
+      return jsonError(
+        res.error ?? "Verifikasi OTP gagal.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
     }
     return jsonSuccess("Verifikasi OTP berhasil.", res.data);
   }
@@ -433,18 +714,25 @@ export async function POST(
   // 3. POST /api/tutor-applications
   if (path === "tutor-applications") {
     const userId = String(body.user_id ?? body.userId ?? "");
-    const name = String(body.name ?? "");
-    const courseIds = Array.isArray(body.course_ids ?? body.courseIds)
-      ? ((body.course_ids ?? body.courseIds) as unknown[]).map(String)
-      : [];
+    const name = typeof body.name === "string" ? body.name : "";
+    const rawCourses = body.course_ids ?? body.courseIds;
+    const courseIds = Array.isArray(rawCourses) ? rawCourses.map(String) : [];
     const topics = Array.isArray(body.topics)
       ? (body.topics as unknown[]).map(String)
       : [];
-    const bio = String(body.bio ?? "");
+    const bio = typeof body.bio === "string" ? body.bio : "";
     const hourlyRate = Number(body.hourly_rate ?? body.hourlyRate ?? 0);
     const slots = Array.isArray(body.slots)
       ? (body.slots as unknown[]).map(String)
       : [];
+
+    if (!Number.isSafeInteger(hourlyRate) || hourlyRate <= 0) {
+      return jsonError(
+        "Tarif per 60 menit harus berupa bilangan bulat positif.",
+        400,
+        "INVALID_INPUT"
+      );
+    }
 
     const convexRes = await callConvex(
       "mutation",
@@ -461,7 +749,12 @@ export async function POST(
     );
 
     const res = convexRes.ok
-      ? (convexRes.value as { ok: boolean; data?: unknown; error?: string })
+      ? (convexRes.value as {
+          ok: boolean;
+          data?: unknown;
+          error?: string;
+          code?: string;
+        })
       : tutorService.submitApplication({
           userId,
           name,
@@ -473,7 +766,11 @@ export async function POST(
         });
 
     if (!res.ok) {
-      return jsonError(res.error ?? "Gagal mengirim pengajuan tutor.", 400);
+      return jsonError(
+        res.error ?? "Gagal mengirim pengajuan tutor.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
     }
     return jsonSuccess(
       "Pengajuan pendaftaran tutor berhasil dikirim.",
@@ -504,7 +801,7 @@ export async function POST(
     if (!res.ok) {
       return jsonError(
         res.error ?? "Gagal membuka percakapan.",
-        res.code === "SELF_CHAT_NOT_ALLOWED" ? 400 : 404,
+        statusFromServiceCode(res.code, 404),
         res.code
       );
     }
@@ -519,7 +816,7 @@ export async function POST(
   ) {
     const conversationId = slug[1];
     const senderId = String(body.sender_id ?? body.senderId ?? "");
-    const content = String(body.content ?? "");
+    const content = typeof body.content === "string" ? body.content : "";
 
     const convexRes = await callConvex("mutation", "chat:sendMessage", {
       conversationId,
@@ -527,11 +824,20 @@ export async function POST(
       content,
     });
     const res = convexRes.ok
-      ? (convexRes.value as { ok: boolean; data?: unknown; error?: string })
+      ? (convexRes.value as {
+          ok: boolean;
+          data?: unknown;
+          error?: string;
+          code?: string;
+        })
       : chatService.sendMessage({ conversationId, senderId, content });
 
     if (!res.ok) {
-      return jsonError(res.error ?? "Gagal mengirim pesan.", 400);
+      return jsonError(
+        res.error ?? "Gagal mengirim pesan.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
     }
     return jsonSuccess("Pesan berhasil dikirim.", res.data, 201);
   }
@@ -545,15 +851,35 @@ export async function POST(
     const conversationId = slug[1];
     const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
     const courseId = String(body.course_id ?? body.courseId ?? "");
-    const topic = String(body.topic ?? "");
-    const startAt = Number(body.start_at ?? body.startAt ?? 0);
-    const price = Number(body.price ?? 0);
+    const topic = typeof body.topic === "string" ? body.topic : "";
+    const startAt = Number(body.start_at ?? body.startAt ?? Number.NaN);
+    const price = Number(body.price ?? Number.NaN);
+    const rawMeetingMode = body.meeting_mode ?? body.meetingMode;
+
+    if (
+      rawMeetingMode !== undefined &&
+      rawMeetingMode !== "online" &&
+      rawMeetingMode !== "offline_its"
+    ) {
+      return jsonError(
+        "meeting_mode harus bernilai online atau offline_its.",
+        400,
+        "INVALID_MEETING_MODE"
+      );
+    }
+    if (!Number.isFinite(startAt) || !Number.isSafeInteger(price)) {
+      return jsonError(
+        "start_at dan price harus berupa angka bulat valid.",
+        400,
+        "INVALID_INPUT"
+      );
+    }
+
     const meetingMode =
-      (body.meeting_mode ?? body.meetingMode) === "offline_its"
+      rawMeetingMode === "offline_its"
         ? ("offline_its" as const)
         : ("online" as const);
-    const brief =
-      typeof body.brief === "string" ? body.brief : undefined;
+    const brief = typeof body.brief === "string" ? body.brief : undefined;
 
     const convexRes = await callConvex("mutation", "bookings:createOffer", {
       conversationId,
@@ -566,7 +892,12 @@ export async function POST(
       brief,
     });
     const res = convexRes.ok
-      ? (convexRes.value as { ok: boolean; data?: unknown; error?: string })
+      ? (convexRes.value as {
+          ok: boolean;
+          data?: unknown;
+          error?: string;
+          code?: string;
+        })
       : bookingService.createOffer({
           conversationId,
           actorUserId,
@@ -579,7 +910,11 @@ export async function POST(
         });
 
     if (!res.ok) {
-      return jsonError(res.error ?? "Gagal membuat tawaran sesi.", 400);
+      return jsonError(
+        res.error ?? "Gagal membuat tawaran sesi.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
     }
     return jsonSuccess(
       "Tawaran sesi berhasil dikirim ke ruang chat.",
@@ -612,7 +947,11 @@ export async function POST(
       : paymentService.startPayment({ bookingId, actorUserId });
 
     if (!res.ok) {
-      return jsonError(res.error ?? "Gagal memulai pembayaran.", 409, res.code);
+      return jsonError(
+        res.error ?? "Gagal memulai pembayaran.",
+        statusFromServiceCode(res.code, 409),
+        res.code
+      );
     }
     return jsonSuccess("Silakan lakukan pembayaran melalui QRIS.", res.data);
   }
@@ -626,10 +965,8 @@ export async function POST(
   ) {
     const bookingId = slug[1];
     const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
-    const proofName =
-      typeof (body.proof_name ?? body.proofName) === "string"
-        ? String(body.proof_name ?? body.proofName)
-        : undefined;
+    const rawProof = body.proof_name ?? body.proofName;
+    const proofName = typeof rawProof === "string" ? rawProof : undefined;
 
     const convexRes = await callConvex(
       "mutation",
@@ -641,11 +978,20 @@ export async function POST(
       }
     );
     const res = convexRes.ok
-      ? (convexRes.value as { ok: boolean; data?: unknown; error?: string })
+      ? (convexRes.value as {
+          ok: boolean;
+          data?: unknown;
+          error?: string;
+          code?: string;
+        })
       : paymentService.submitDemoProof({ bookingId, actorUserId, proofName });
 
     if (!res.ok) {
-      return jsonError(res.error ?? "Gagal mengirim bukti pembayaran.", 409);
+      return jsonError(
+        res.error ?? "Gagal mengirim bukti pembayaran.",
+        statusFromServiceCode(res.code, 409),
+        res.code
+      );
     }
     return jsonSuccess(
       "Bukti pembayaran berhasil dikirim dan menunggu verifikasi.",
@@ -655,7 +1001,14 @@ export async function POST(
 
   // 9. POST /api/demo/reset
   if (path === "demo/reset") {
-    await callConvex("mutation", "seed:resetDemoData", {});
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
+    seedEnsured = false;
+    await callConvex("mutation", "seed:resetDemoData", {
+      ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
+    });
+    seedEnsured = true;
     authService.resetDemo();
     return jsonSuccess(
       "Seluruh data demo berhasil direset ke kondisi awal.",
@@ -675,7 +1028,9 @@ export async function PATCH(
 ) {
   const { slug } = await context.params;
   const path = slug.join("/");
-  const body = await readJsonBody(request);
+  const parsedBody = await readJsonBody(request);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.data;
 
   // 1. PATCH /api/conversations/:conversation_id/read
   if (
@@ -684,12 +1039,45 @@ export async function PATCH(
     slug[2] === "read"
   ) {
     const conversationId = slug[1];
-    const readerId = String(body.reader_id ?? body.readerId ?? "");
-    await callConvex("mutation", "chat:markRead", {
+    const readerId = String(body.reader_id ?? body.readerId ?? "").trim();
+    if (!readerId) {
+      return jsonError("Field reader_id wajib diisi.", 400, "INVALID_INPUT");
+    }
+
+    const convexRes = await callConvex("mutation", "chat:markRead", {
       conversationId,
       readerId,
     });
-    chatService.markRead(conversationId, readerId);
+
+    if (convexRes.ok && convexRes.value && typeof convexRes.value === "object") {
+      const val = convexRes.value as {
+        ok: boolean;
+        error?: string;
+        code?: string;
+      };
+      if (!val.ok) {
+        return jsonError(
+          val.error ?? "Gagal menandai pesan dibaca.",
+          statusFromServiceCode(val.code, 400),
+          val.code
+        );
+      }
+      chatService.markRead(conversationId, readerId);
+      return jsonSuccess("Seluruh pesan ditandai sudah dibaca.", {
+        conversation_id: conversationId,
+        read: true,
+      });
+    }
+
+    const fallbackRes = chatService.markRead(conversationId, readerId);
+    if (!convexRes.ok && !fallbackRes.ok) {
+      return jsonError(
+        fallbackRes.error,
+        statusFromServiceCode(fallbackRes.code, 400),
+        fallbackRes.code
+      );
+    }
+
     return jsonSuccess("Seluruh pesan ditandai sudah dibaca.", {
       conversation_id: conversationId,
       read: true,
@@ -715,13 +1103,11 @@ export async function PATCH(
       : bookingService.acceptOffer({ bookingId, actorUserId });
 
     if (!res.ok) {
-      const status =
-        res.code === "SCHEDULE_CONFLICT" ||
-        res.code === "ALREADY_ACCEPTED" ||
-        res.code === "ALREADY_DECLINED"
-          ? 409
-          : 400;
-      return jsonError(res.error ?? "Gagal menerima tawaran.", status, res.code);
+      return jsonError(
+        res.error ?? "Gagal menerima tawaran.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
     }
     return jsonSuccess(
       "Tawaran sesi berhasil diterima. Silakan lanjutkan ke pembayaran.",
@@ -739,11 +1125,20 @@ export async function PATCH(
       actorUserId,
     });
     const res = convexRes.ok
-      ? (convexRes.value as { ok: boolean; data?: unknown; error?: string })
+      ? (convexRes.value as {
+          ok: boolean;
+          data?: unknown;
+          error?: string;
+          code?: string;
+        })
       : bookingService.declineOffer({ bookingId, actorUserId });
 
     if (!res.ok) {
-      return jsonError(res.error ?? "Gagal menolak tawaran.", 409);
+      return jsonError(
+        res.error ?? "Gagal menolak tawaran.",
+        statusFromServiceCode(res.code, 409),
+        res.code
+      );
     }
     return jsonSuccess("Tawaran sesi telah ditolak.", res.data);
   }
@@ -756,7 +1151,14 @@ export async function PATCH(
     slug[3] === "status"
   ) {
     const bookingId = slug[1];
-    const decision = body.decision === "reject" ? "reject" : "approve";
+    if (body.decision !== "approve" && body.decision !== "reject") {
+      return jsonError(
+        "Field decision wajib bernilai approve atau reject.",
+        400,
+        "INVALID_DECISION"
+      );
+    }
+    const decision = body.decision;
 
     const convexRes = await callConvex(
       "mutation",
@@ -767,11 +1169,20 @@ export async function PATCH(
       }
     );
     const res = convexRes.ok
-      ? (convexRes.value as { ok: boolean; data?: unknown; error?: string })
+      ? (convexRes.value as {
+          ok: boolean;
+          data?: unknown;
+          error?: string;
+          code?: string;
+        })
       : paymentService.simulateVerification({ bookingId, decision });
 
     if (!res.ok) {
-      return jsonError(res.error ?? "Gagal memperbarui status pembayaran.", 409);
+      return jsonError(
+        res.error ?? "Gagal memperbarui status pembayaran.",
+        statusFromServiceCode(res.code, 409),
+        res.code
+      );
     }
     return jsonSuccess("Status pembayaran berhasil diperbarui.", res.data);
   }
@@ -783,13 +1194,38 @@ export async function PATCH(
     slug[1] === "tutor-applications" &&
     slug[3] === "approve"
   ) {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
     const applicationId = slug[2];
     const department =
       typeof body.department === "string" ? body.department : undefined;
     const cohort =
-      typeof body.cohort === "number" ? body.cohort : undefined;
-    const badge =
-      body.badge === "asdos" ? ("asdos" as const) : ("grade" as const);
+      body.cohort !== undefined ? Number(body.cohort) : undefined;
+
+    if (
+      cohort !== undefined &&
+      (!Number.isInteger(cohort) || cohort < 2000 || cohort > 2035)
+    ) {
+      return jsonError(
+        "Angkatan (cohort) harus berupa tahun bulat antara 2000–2035.",
+        400,
+        "INVALID_COHORT"
+      );
+    }
+
+    if (
+      body.badge !== undefined &&
+      body.badge !== "grade" &&
+      body.badge !== "asdos"
+    ) {
+      return jsonError(
+        "Field badge harus bernilai grade atau asdos.",
+        400,
+        "INVALID_BADGE"
+      );
+    }
+    const badge = body.badge === "asdos" ? ("asdos" as const) : ("grade" as const);
 
     const convexRes = await callConvex(
       "mutation",
@@ -799,22 +1235,35 @@ export async function PATCH(
         department,
         cohort,
         badge,
+        ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
       }
     );
 
-    if (convexRes.ok) {
-      const res = convexRes.value as {
-        ok: boolean;
-        data?: unknown;
-        error?: string;
-      };
-      if (!res.ok) return jsonError(res.error ?? "Pengajuan tidak ditemukan.", 404);
-      return jsonSuccess(
-        "Pengajuan tutor disetujui dan profil tutor telah aktif.",
-        res.data
+    const res = convexRes.ok
+      ? (convexRes.value as {
+          ok: boolean;
+          data?: unknown;
+          error?: string;
+          code?: string;
+        })
+      : tutorService.approveApplication({
+          applicationId,
+          department,
+          cohort,
+          badge,
+        });
+
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Pengajuan tidak ditemukan.",
+        statusFromServiceCode(res.code, 404),
+        res.code
       );
     }
-    return jsonError("Pengajuan tutor tidak ditemukan.", 404);
+    return jsonSuccess(
+      "Pengajuan tutor disetujui dan profil tutor telah aktif.",
+      res.data
+    );
   }
 
   return jsonError(`Endpoint PATCH /api/${path} tidak ditemukan.`, 404);
@@ -824,7 +1273,7 @@ export async function PATCH(
 // DELETE HANDLERS
 // ============================================================================
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ slug: string[] }> }
 ) {
   const { slug } = await context.params;
@@ -836,23 +1285,37 @@ export async function DELETE(
     slug[0] === "admin" &&
     slug[1] === "tutor-applications"
   ) {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
     const applicationId = slug[2];
     const convexRes = await callConvex(
       "mutation",
       "admin:rejectTutorApplication",
-      { applicationId }
-    );
-    if (convexRes.ok) {
-      const val = convexRes.value as { rejected: boolean };
-      if (!val.rejected) {
-        return jsonError("Pengajuan tutor tidak ditemukan.", 404);
+      {
+        applicationId,
+        ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
       }
-      return jsonSuccess(
-        "Pengajuan tutor telah ditolak dan dihapus dari antrean.",
-        val
+    );
+
+    const val: { rejected: boolean; unauthorized?: boolean } = convexRes.ok
+      ? (convexRes.value as { rejected: boolean; unauthorized?: boolean })
+      : tutorService.rejectApplication(applicationId);
+
+    if (val.unauthorized) {
+      return jsonError("Kunci admin tidak valid.", 401, "UNAUTHORIZED");
+    }
+    if (!val.rejected) {
+      return jsonError(
+        "Pengajuan tutor tidak ditemukan.",
+        404,
+        "APPLICATION_NOT_FOUND"
       );
     }
-    return jsonError("Pengajuan tutor tidak ditemukan.", 404);
+    return jsonSuccess(
+      "Pengajuan tutor telah ditolak dan dihapus dari antrean.",
+      { rejected: true }
+    );
   }
 
   return jsonError(`Endpoint DELETE /api/${path} tidak ditemukan.`, 404);

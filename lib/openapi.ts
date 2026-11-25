@@ -58,7 +58,7 @@ export const REST_ENDPOINTS_CATALOG: RestEndpointDoc[] = [
     method: "GET",
     pathTemplate: "/api/health",
     openApiPath: "/api/health",
-    convexFunction: "state:getAppState (QUERY)",
+    convexFunction: "tutors:listCourses (QUERY)",
     summary: "Cek status layanan API dan koneksi database Convex",
     description:
       "Memeriksa apakah server API KOLEARA dan koneksi database Convex berjalan normal.",

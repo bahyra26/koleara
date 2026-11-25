@@ -11,6 +11,7 @@ import {
   userObjectValidator,
 } from "./validators";
 
+// shortcut: demo mode syncs shared collections to power the multi-role switcher UI; scope per-user with ctx.auth when moving off demo mode
 export const getAppState = query({
   args: {},
   returns: v.object({
@@ -26,24 +27,37 @@ export const getAppState = query({
   }),
   handler: async (ctx) => {
     const [
-      users,
+      seedUsers,
+      recentUsersDesc,
       courses,
       tutors,
       tutorApplications,
       conversations,
-      messages,
-      bookings,
-      payments,
+      latestMessagesDesc,
+      latestBookingsDesc,
+      latestPaymentsDesc,
     ] = await Promise.all([
-      ctx.db.query("users").take(200),
+      ctx.db.query("users").take(20),
+      ctx.db.query("users").order("desc").take(180),
       ctx.db.query("courses").take(50),
       ctx.db.query("tutors").take(200),
-      ctx.db.query("tutorApplications").take(200),
-      ctx.db.query("conversations").take(200),
-      ctx.db.query("messages").take(500),
-      ctx.db.query("bookings").take(300),
-      ctx.db.query("payments").take(300),
+      ctx.db.query("tutorApplications").order("desc").take(200),
+      ctx.db.query("conversations").order("desc").take(200),
+      ctx.db.query("messages").order("desc").take(500),
+      ctx.db.query("bookings").order("desc").take(300),
+      ctx.db.query("payments").order("desc").take(300),
     ]);
+    const seenUserIds = new Set<string>();
+    const users = [...seedUsers, ...[...recentUsersDesc].reverse()].filter(
+      (u) => {
+        if (seenUserIds.has(u.appId)) return false;
+        seenUserIds.add(u.appId);
+        return true;
+      },
+    );
+    const messages = [...latestMessagesDesc].reverse();
+    const bookings = [...latestBookingsDesc].reverse();
+    const payments = [...latestPaymentsDesc].reverse();
 
     return {
       seeded: courses.length > 0 && tutors.length > 0,

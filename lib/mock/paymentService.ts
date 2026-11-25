@@ -35,6 +35,7 @@ export const paymentService = {
   }): ServiceResult<Payment> {
     let result: ServiceResult<Payment> = {
       ok: false,
+      code: "BOOKING_NOT_FOUND",
       error: "Data pemesanan tidak ditemukan.",
     };
 
@@ -45,6 +46,7 @@ export const paymentService = {
       if (booking.learnerId !== params.actorUserId) {
         result = {
           ok: false,
+          code: "FORBIDDEN",
           error: "Hanya mahasiswa pemesan yang dapat membuka pembayaran ini.",
         };
         return prev;
@@ -112,6 +114,7 @@ export const paymentService = {
   }): ServiceResult<Payment> {
     let result: ServiceResult<Payment> = {
       ok: false,
+      code: "BOOKING_NOT_FOUND",
       error: "Data pemesanan tidak ditemukan.",
     };
 
@@ -122,6 +125,7 @@ export const paymentService = {
       if (booking.learnerId !== params.actorUserId) {
         result = {
           ok: false,
+          code: "FORBIDDEN",
           error: "Hanya mahasiswa pemesan yang dapat mengirim bukti demo.",
         };
         return prev;
@@ -129,6 +133,7 @@ export const paymentService = {
       if (booking.status !== "accepted") {
         result = {
           ok: false,
+          code: "NOT_ACCEPTED",
           error: "Pemesanan ini tidak dalam status siap dibayar.",
         };
         return prev;
@@ -138,6 +143,7 @@ export const paymentService = {
       if (existing?.status === "paid") {
         result = {
           ok: false,
+          code: "ALREADY_PAID",
           error: "Pembayaran ini sudah terverifikasi (demo).",
         };
         return prev;
@@ -145,19 +151,25 @@ export const paymentService = {
       if (existing?.status === "pending_verification") {
         result = {
           ok: false,
+          code: "ALREADY_SUBMITTED",
           error: "Bukti demo sudah dikirim dan sedang menunggu verifikasi.",
         };
         return prev;
       }
 
-      const safeFileName =
-        (params.proofName ?? "").trim() || "bukti-qris-demo.jpg";
+      const safeFileName = (
+        (params.proofName ?? "")
+          .trim()
+          .replace(/^.*[\\/]/, "")
+          .replace(/[^\w.\- ()]/g, "_")
+          .trim() || "bukti-qris-demo.jpg"
+      ).slice(0, 120);
       const updatedPayment: Payment = {
         id: existing?.id ?? `pay-${booking.id}`,
         bookingId: booking.id,
         amount: booking.price,
         status: "pending_verification",
-        proofName: safeFileName.slice(0, 120),
+        proofName: safeFileName,
         submittedAt: Date.now(),
         rejectionReason: undefined,
       };
@@ -191,6 +203,7 @@ export const paymentService = {
   }): ServiceResult<Payment> {
     let result: ServiceResult<Payment> = {
       ok: false,
+      code: "PAYMENT_NOT_FOUND",
       error: "Data pembayaran tidak ditemukan.",
     };
 
@@ -201,9 +214,13 @@ export const paymentService = {
       );
       if (!booking || !payment) return prev;
 
-      if (payment.status !== "pending_verification") {
+      if (
+        payment.status !== "pending_verification" ||
+        booking.status !== "accepted"
+      ) {
         result = {
           ok: false,
+          code: "INVALID_STATE",
           error:
             "Simulasi verifikasi hanya dapat dijalankan saat status Menunggu Verifikasi.",
         };

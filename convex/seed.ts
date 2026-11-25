@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, MutationCtx } from "./_generated/server";
+import { isAdminAuthorized } from "./validators";
 
 const SEED_BASE_TIME = Date.parse("2026-11-24T14:00:00+07:00");
 
@@ -240,19 +241,39 @@ async function clearAllTables(ctx: MutationCtx): Promise<void> {
 
 async function insertInitialSeedData(ctx: MutationCtx): Promise<void> {
   for (const user of INITIAL_USERS) {
-    await ctx.db.insert("users", user);
+    const exists = await ctx.db
+      .query("users")
+      .withIndex("by_appId", (q) => q.eq("appId", user.appId))
+      .first();
+    if (!exists) await ctx.db.insert("users", user);
   }
   for (const course of INITIAL_COURSES) {
-    await ctx.db.insert("courses", course);
+    const exists = await ctx.db
+      .query("courses")
+      .withIndex("by_appId", (q) => q.eq("appId", course.appId))
+      .first();
+    if (!exists) await ctx.db.insert("courses", course);
   }
   for (const tutor of INITIAL_TUTORS) {
-    await ctx.db.insert("tutors", tutor);
+    const exists = await ctx.db
+      .query("tutors")
+      .withIndex("by_appId", (q) => q.eq("appId", tutor.appId))
+      .first();
+    if (!exists) await ctx.db.insert("tutors", tutor);
   }
   for (const conv of INITIAL_CONVERSATIONS) {
-    await ctx.db.insert("conversations", conv);
+    const exists = await ctx.db
+      .query("conversations")
+      .withIndex("by_appId", (q) => q.eq("appId", conv.appId))
+      .first();
+    if (!exists) await ctx.db.insert("conversations", conv);
   }
   for (const msg of INITIAL_MESSAGES) {
-    await ctx.db.insert("messages", msg);
+    const exists = await ctx.db
+      .query("messages")
+      .withIndex("by_appId", (q) => q.eq("appId", msg.appId))
+      .first();
+    if (!exists) await ctx.db.insert("messages", msg);
   }
 }
 
@@ -263,7 +284,7 @@ export const seedDatabase = internalMutation({
     const existingCourse = await ctx.db
       .query("courses")
       .withIndex("by_appId", (q) => q.eq("appId", "course-kalkulus-1"))
-      .unique();
+      .first();
 
     if (existingCourse && !args.forceReset) {
       return { seeded: false };
@@ -282,7 +303,7 @@ export const ensureSeeded = mutation({
     const existingCourse = await ctx.db
       .query("courses")
       .withIndex("by_appId", (q) => q.eq("appId", "course-kalkulus-1"))
-      .unique();
+      .first();
 
     if (existingCourse) {
       return { seeded: false };
@@ -294,9 +315,12 @@ export const ensureSeeded = mutation({
 });
 
 export const resetDemoData = mutation({
-  args: {},
+  args: { adminKey: v.optional(v.string()) },
   returns: v.object({ reset: v.boolean() }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
+    if (!isAdminAuthorized(args.adminKey)) {
+      return { reset: false };
+    }
     await clearAllTables(ctx);
     await insertInitialSeedData(ctx);
     return { reset: true };

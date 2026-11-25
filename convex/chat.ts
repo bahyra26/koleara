@@ -2,12 +2,15 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
   conversationObjectValidator,
+  isValidAppId,
+  MAX_MESSAGE_LENGTH,
   messageObjectValidator,
   serviceResultValidator,
   tutorObjectValidator,
   userObjectValidator,
 } from "./validators";
 
+// shortcut: demo trusts caller-supplied learnerId/senderId/readerId until Convex Auth is wired
 export const getOrCreateConversation = mutation({
   args: {
     learnerId: v.string(),
@@ -19,18 +22,26 @@ export const getOrCreateConversation = mutation({
       ctx.db
         .query("users")
         .withIndex("by_appId", (q) => q.eq("appId", args.learnerId))
-        .unique(),
+        .first(),
       ctx.db
         .query("tutors")
         .withIndex("by_appId", (q) => q.eq("appId", args.tutorId))
-        .unique(),
+        .first(),
     ]);
 
     if (!learner) {
-      return { ok: false as const, error: "Sesi demo tidak ditemukan." };
+      return {
+        ok: false as const,
+        code: "USER_NOT_FOUND",
+        error: "Sesi demo tidak ditemukan.",
+      };
     }
-    if (!tutor) {
-      return { ok: false as const, error: "Tutor tidak ditemukan." };
+    if (!tutor || !tutor.verified) {
+      return {
+        ok: false as const,
+        code: "TUTOR_NOT_FOUND",
+        error: "Tutor tidak ditemukan.",
+      };
     }
     if (tutor.userId === learner.appId) {
       return {
@@ -46,7 +57,7 @@ export const getOrCreateConversation = mutation({
       .withIndex("by_learnerId_and_tutorId", (q) =>
         q.eq("learnerId", args.learnerId).eq("tutorId", args.tutorId),
       )
-      .unique();
+      .first();
 
     if (existing) {
       return {
@@ -95,38 +106,103 @@ export const listConversations = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const [users, tutors, conversations] = await Promise.all([
-      ctx.db.query("users").take(100),
-      ctx.db.query("tutors").take(100),
-      ctx.db.query("conversations").take(100),
+    if (!args.userId.trim()) return [];
+
+    const [asLearnerConvs, myTutors] = await Promise.all([
+      ctx.db
+        .query("conversations")
+        .withIndex("by_learnerId_and_lastMessageAt", (q) =>
+          q.eq("learnerId", args.userId),
+        )
+        .order("desc")
+        .take(100),
+      ctx.db
+        .query("tutors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+        .take(5),
+    ]);
+
+    const asTutorConvLists = await Promise.all(
+      myTutors.map((t) =>
+        ctx.db
+          .query("conversations")
+          .withIndex("by_tutorId_and_lastMessageAt", (q) =>
+            q.eq("tutorId", t.appId),
+          )
+          .order("desc")
+          .take(100),
+      ),
+    );
+
+    const convByAppId = new Map<string, (typeof asLearnerConvs)[number]>();
+    for (const conv of asLearnerConvs) {
+      convByAppId.set(conv.appId, conv);
+    }
+    for (const list of asTutorConvLists) {
+      for (const conv of list) {
+        convByAppId.set(conv.appId, conv);
+      }
+    }
+
+    const conversations = Array.from(convByAppId.values());
+    if (conversations.length === 0) return [];
+
+    const uniqueLearnerIds = Array.from(
+      new Set(conversations.map((c) => c.learnerId)),
+    );
+    const uniqueTutorIds = Array.from(
+      new Set(conversations.map((c) => c.tutorId)),
+    );
+
+    const [learnerDocs, tutorDocs] = await Promise.all([
+      Promise.all(
+        uniqueLearnerIds.map((uid) =>
+          ctx.db
+            .query("users")
+            .withIndex("by_appId", (q) => q.eq("appId", uid))
+            .first(),
+        ),
+      ),
+      Promise.all(
+        uniqueTutorIds.map((tid) =>
+          ctx.db
+            .query("tutors")
+            .withIndex("by_appId", (q) => q.eq("appId", tid))
+            .first(),
+        ),
+      ),
     ]);
 
     const userById = new Map(
-      users.map((u) => [
-        u.appId,
-        { id: u.appId, email: u.email, name: u.name, role: u.role },
-      ]),
+      learnerDocs
+        .filter((u): u is NonNullable<typeof u> => Boolean(u))
+        .map((u) => [
+          u.appId,
+          { id: u.appId, email: u.email, name: u.name, role: u.role },
+        ]),
     );
     const tutorById = new Map(
-      tutors.map((t) => [
-        t.appId,
-        {
-          id: t.appId,
-          userId: t.userId,
-          name: t.name,
-          department: t.department,
-          cohort: t.cohort,
-          bio: t.bio,
-          courseIds: t.courseIds,
-          topics: t.topics,
-          hourlyRate: t.hourlyRate,
-          verified: t.verified,
-          badge: t.badge,
-          rating: t.rating,
-          completedSessionsDemo: t.completedSessionsDemo,
-          slots: t.slots,
-        },
-      ]),
+      tutorDocs
+        .filter((t): t is NonNullable<typeof t> => Boolean(t))
+        .map((t) => [
+          t.appId,
+          {
+            id: t.appId,
+            userId: t.userId,
+            name: t.name,
+            department: t.department,
+            cohort: t.cohort,
+            bio: t.bio,
+            courseIds: t.courseIds,
+            topics: t.topics,
+            hourlyRate: t.hourlyRate,
+            verified: t.verified,
+            badge: t.badge,
+            rating: t.rating,
+            completedSessionsDemo: t.completedSessionsDemo,
+            slots: t.slots,
+          },
+        ]),
     );
 
     const summaries = [];
@@ -140,11 +216,12 @@ export const listConversations = query({
       const isTutor = tutor.userId === args.userId;
       if (!isLearner && !isTutor) continue;
 
-      const messages = await ctx.db
+      const recentMessagesDesc = await ctx.db
         .query("messages")
         .withIndex("by_conversationId_and_createdAt", (q) =>
           q.eq("conversationId", conv.appId),
         )
+        .order("desc")
         .take(200);
 
       let lastMessage: {
@@ -159,8 +236,8 @@ export const listConversations = query({
       } | null = null;
       let unreadCount = 0;
 
-      for (const msg of messages) {
-        if (!lastMessage || msg.createdAt >= lastMessage.createdAt) {
+      for (const msg of recentMessagesDesc) {
+        if (!lastMessage || msg.createdAt > lastMessage.createdAt) {
           lastMessage = {
             id: msg.appId,
             conversationId: msg.conversationId,
@@ -204,15 +281,15 @@ export const listMessages = query({
   args: { conversationId: v.string() },
   returns: v.array(messageObjectValidator),
   handler: async (ctx, args) => {
-    const rows = await ctx.db
+    const rowsDesc = await ctx.db
       .query("messages")
       .withIndex("by_conversationId_and_createdAt", (q) =>
         q.eq("conversationId", args.conversationId),
       )
-      .order("asc")
+      .order("desc")
       .take(200);
 
-    return rows.map((row) => ({
+    return rowsDesc.reverse().map((row) => ({
       id: row.appId,
       conversationId: row.conversationId,
       senderId: row.senderId,
@@ -236,22 +313,44 @@ export const sendMessage = mutation({
   handler: async (ctx, args) => {
     const trimmed = args.content.trim();
     if (!trimmed) {
-      return { ok: false as const, error: "Pesan tidak boleh kosong." };
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Pesan tidak boleh kosong.",
+      };
+    }
+    if (trimmed.length > MAX_MESSAGE_LENGTH) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: `Pesan maksimal ${MAX_MESSAGE_LENGTH} karakter.`,
+      };
+    }
+    if (args.appId !== undefined && !isValidAppId(args.appId)) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "ID pesan tidak valid.",
+      };
     }
 
     const conversation = await ctx.db
       .query("conversations")
       .withIndex("by_appId", (q) => q.eq("appId", args.conversationId))
-      .unique();
+      .first();
 
     if (!conversation) {
-      return { ok: false as const, error: "Percakapan tidak ditemukan." };
+      return {
+        ok: false as const,
+        code: "CONVERSATION_NOT_FOUND",
+        error: "Percakapan tidak ditemukan.",
+      };
     }
 
     const tutor = await ctx.db
       .query("tutors")
       .withIndex("by_appId", (q) => q.eq("appId", conversation.tutorId))
-      .unique();
+      .first();
 
     const isParticipant =
       conversation.learnerId === args.senderId ||
@@ -260,6 +359,7 @@ export const sendMessage = mutation({
     if (!isParticipant) {
       return {
         ok: false as const,
+        code: "FORBIDDEN",
         error: "Akun demo aktif bukan peserta percakapan ini.",
       };
     }
@@ -272,22 +372,46 @@ export const sendMessage = mutation({
     const existing = await ctx.db
       .query("messages")
       .withIndex("by_appId", (q) => q.eq("appId", appId))
-      .unique();
+      .first();
 
-    if (!existing) {
-      await ctx.db.insert("messages", {
-        appId,
-        conversationId: conversation.appId,
-        senderId: args.senderId,
-        type: "text",
-        content: trimmed,
-        createdAt: now,
-      });
-
-      await ctx.db.patch("conversations", conversation._id, {
-        lastMessageAt: now,
-      });
+    if (existing) {
+      if (
+        existing.conversationId !== conversation.appId ||
+        existing.senderId !== args.senderId
+      ) {
+        return {
+          ok: false as const,
+          code: "CONFLICT",
+          error: "ID pesan sudah digunakan.",
+        };
+      }
+      return {
+        ok: true as const,
+        data: {
+          id: existing.appId,
+          conversationId: existing.conversationId,
+          senderId: existing.senderId,
+          type: existing.type,
+          content: existing.content,
+          bookingId: existing.bookingId,
+          createdAt: existing.createdAt,
+          readAt: existing.readAt,
+        },
+      };
     }
+
+    await ctx.db.insert("messages", {
+      appId,
+      conversationId: conversation.appId,
+      senderId: args.senderId,
+      type: "text",
+      content: trimmed,
+      createdAt: now,
+    });
+
+    await ctx.db.patch("conversations", conversation._id, {
+      lastMessageAt: now,
+    });
 
     return {
       ok: true as const,
@@ -297,7 +421,7 @@ export const sendMessage = mutation({
         senderId: args.senderId,
         type: "text" as const,
         content: trimmed,
-        createdAt: existing ? existing.createdAt : now,
+        createdAt: now,
       },
     };
   },
@@ -308,21 +432,62 @@ export const markRead = mutation({
     conversationId: v.string(),
     readerId: v.string(),
   },
-  returns: v.null(),
+  returns: v.object({
+    ok: v.boolean(),
+    error: v.optional(v.string()),
+    code: v.optional(v.string()),
+  }),
   handler: async (ctx, args) => {
+    const readerId = args.readerId.trim();
+    if (!readerId) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        error: "ID pembaca wajib diisi.",
+      };
+    }
+
+    const conversation = await ctx.db
+      .query("conversations")
+      .withIndex("by_appId", (q) => q.eq("appId", args.conversationId))
+      .first();
+    if (!conversation) {
+      return {
+        ok: false,
+        code: "CONVERSATION_NOT_FOUND",
+        error: "Percakapan tidak ditemukan.",
+      };
+    }
+
+    const tutor = await ctx.db
+      .query("tutors")
+      .withIndex("by_appId", (q) => q.eq("appId", conversation.tutorId))
+      .first();
+
+    const isParticipant =
+      conversation.learnerId === readerId || tutor?.userId === readerId;
+    if (!isParticipant) {
+      return {
+        ok: false,
+        code: "FORBIDDEN",
+        error: "Hanya peserta percakapan yang dapat menandai pesan dibaca.",
+      };
+    }
+
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversationId_and_createdAt", (q) =>
         q.eq("conversationId", args.conversationId),
       )
+      .order("desc")
       .take(200);
 
     const now = Date.now();
     for (const msg of messages) {
-      if (msg.senderId !== args.readerId && !msg.readAt) {
+      if (msg.senderId !== readerId && !msg.readAt) {
         await ctx.db.patch("messages", msg._id, { readAt: now });
       }
     }
-    return null;
+    return { ok: true };
   },
 });

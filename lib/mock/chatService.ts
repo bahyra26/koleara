@@ -10,6 +10,7 @@ import {
   getDemoStateSnapshot,
   updateDemoState,
 } from "@/lib/mock/store";
+import { MAX_MESSAGE_LENGTH } from "@/lib/validators";
 
 // shortcut: demo trusts caller-supplied learnerId/senderId/readerId; derive identity from ctx.auth in Convex
 export const chatService = {
@@ -19,6 +20,7 @@ export const chatService = {
   ): ServiceResult<Conversation> {
     let result: ServiceResult<Conversation> = {
       ok: false,
+      code: "USER_NOT_FOUND",
       error: "Sesi demo tidak ditemukan.",
     };
 
@@ -27,8 +29,12 @@ export const chatService = {
       const tutor = prev.tutors.find((t) => t.id === tutorId);
 
       if (!learner) return prev;
-      if (!tutor) {
-        result = { ok: false, error: "Tutor tidak ditemukan." };
+      if (!tutor || !tutor.verified) {
+        result = {
+          ok: false,
+          code: "TUTOR_NOT_FOUND",
+          error: "Tutor tidak ditemukan.",
+        };
         return prev;
       }
       if (tutor.userId === learner.id) {
@@ -137,11 +143,23 @@ export const chatService = {
   }): ServiceResult<Message> {
     const trimmed = params.content.trim();
     if (!trimmed) {
-      return { ok: false, error: "Pesan tidak boleh kosong." };
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        error: "Pesan tidak boleh kosong.",
+      };
+    }
+    if (trimmed.length > MAX_MESSAGE_LENGTH) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        error: `Pesan maksimal ${MAX_MESSAGE_LENGTH} karakter.`,
+      };
     }
 
     let result: ServiceResult<Message> = {
       ok: false,
+      code: "CONVERSATION_NOT_FOUND",
       error: "Percakapan tidak ditemukan.",
     };
     let createdMessage: Message | null = null;
@@ -160,6 +178,7 @@ export const chatService = {
       if (!isParticipant) {
         result = {
           ok: false,
+          code: "FORBIDDEN",
           error: "Akun demo aktif bukan peserta percakapan ini.",
         };
         return prev;
@@ -198,13 +217,50 @@ export const chatService = {
     return result;
   },
 
-  markRead(conversationId: string, readerId: string): void {
+  markRead(
+    conversationId: string,
+    readerId: string
+  ): ServiceResult<{ read: true }> {
+    const cleanReaderId = readerId.trim();
+    if (!cleanReaderId) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        error: "ID pembaca wajib diisi.",
+      };
+    }
+
+    let result: ServiceResult<{ read: true }> = {
+      ok: false,
+      code: "CONVERSATION_NOT_FOUND",
+      error: "Percakapan tidak ditemukan.",
+    };
     let didMark = false;
+
     updateDemoState((prev) => {
+      const conversation = prev.conversations.find(
+        (c) => c.id === conversationId
+      );
+      if (!conversation) return prev;
+
+      const tutor = prev.tutors.find((t) => t.id === conversation.tutorId);
+      const isParticipant =
+        conversation.learnerId === cleanReaderId ||
+        tutor?.userId === cleanReaderId;
+      if (!isParticipant) {
+        result = {
+          ok: false,
+          code: "FORBIDDEN",
+          error: "Hanya peserta percakapan yang dapat menandai pesan dibaca.",
+        };
+        return prev;
+      }
+
+      result = { ok: true, data: { read: true } };
       const hasUnread = prev.messages.some(
         (m) =>
           m.conversationId === conversationId &&
-          m.senderId !== readerId &&
+          m.senderId !== cleanReaderId &&
           !m.readAt
       );
       if (!hasUnread) return prev;
@@ -215,7 +271,7 @@ export const chatService = {
         ...prev,
         messages: prev.messages.map((m) =>
           m.conversationId === conversationId &&
-          m.senderId !== readerId &&
+          m.senderId !== cleanReaderId &&
           !m.readAt
             ? { ...m, readAt: now }
             : m
@@ -224,7 +280,12 @@ export const chatService = {
     });
 
     if (didMark) {
-      getConvexMutationHandlers()?.markRead({ conversationId, readerId });
+      getConvexMutationHandlers()?.markRead({
+        conversationId,
+        readerId: cleanReaderId,
+      });
     }
+
+    return result;
   },
 };

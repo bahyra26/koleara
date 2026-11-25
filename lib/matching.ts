@@ -145,3 +145,178 @@ export function calculateBriefMatchScore(
     reasons,
   };
 }
+
+export type RankableCourse = {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+  topics: string[];
+};
+
+export type RankableTutor = {
+  id: string;
+  userId: string;
+  name: string;
+  department: string;
+  cohort: number;
+  bio: string;
+  courseIds: string[];
+  topics: string[];
+  hourlyRate: number;
+  verified: boolean;
+  badge?: "grade" | "asdos";
+  rating?: number;
+  completedSessionsDemo?: number;
+  slots: string[];
+};
+
+export type RankedTutorItem<
+  TTutor extends RankableTutor = RankableTutor,
+  TCourse extends RankableCourse = RankableCourse,
+> = {
+  tutor: TTutor;
+  courses: TCourse[];
+  matchScore?: number;
+  matchReasons: string[];
+};
+
+export function rankVerifiedTutors<
+  TTutor extends RankableTutor,
+  TCourse extends RankableCourse,
+>(
+  tutors: readonly TTutor[],
+  courses: readonly TCourse[],
+  filters: {
+    query?: string;
+    courseId?: string;
+    topic?: string;
+    maxBudget?: number | null;
+    scheduleQuery?: string;
+  }
+): Array<RankedTutorItem<TTutor, TCourse>> {
+  if (
+    typeof filters.maxBudget === "number" &&
+    (!Number.isFinite(filters.maxBudget) || filters.maxBudget < 0)
+  ) {
+    return [];
+  }
+
+  const courseById = new Map(courses.map((c) => [c.id, c]));
+  const queryText = (filters.query ?? "").trim().toLowerCase();
+  const courseId = (filters.courseId ?? "").trim();
+  const topic = (filters.topic ?? "").trim().toLowerCase();
+  const maxBudget =
+    typeof filters.maxBudget === "number" ? filters.maxBudget : null;
+  const scheduleQuery = (filters.scheduleQuery ?? "").trim().toLowerCase();
+
+  const hasActiveFilter = Boolean(
+    queryText || courseId || topic || maxBudget !== null || scheduleQuery
+  );
+
+  const scored: Array<{
+    item: RankedTutorItem<TTutor, TCourse>;
+    rawTotal: number;
+    bayesianRating: number;
+  }> = [];
+
+  for (const tutor of tutors) {
+    if (!tutor.verified) continue;
+
+    const tutorCourses = tutor.courseIds
+      .map((id) => courseById.get(id))
+      .filter((c): c is TCourse => Boolean(c));
+
+    if (courseId && !tutor.courseIds.includes(courseId)) continue;
+    if (topic && !tutor.topics.some((t) => t.toLowerCase().includes(topic))) {
+      continue;
+    }
+    if (maxBudget !== null && tutor.hourlyRate > maxBudget) continue;
+    if (
+      scheduleQuery &&
+      !tutor.slots.some((slot) => slot.toLowerCase().includes(scheduleQuery))
+    ) {
+      continue;
+    }
+
+    if (queryText) {
+      const haystack = [
+        tutor.name,
+        tutor.department,
+        tutor.bio,
+        ...tutorCourses.map((c) => c.name),
+        ...tutor.topics,
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(queryText)) continue;
+    }
+
+    if (!hasActiveFilter) {
+      scored.push({
+        item: { tutor, courses: tutorCourses, matchReasons: [] },
+        rawTotal: 0,
+        bayesianRating: 0,
+      });
+      continue;
+    }
+
+    const matchedTopicLabel = topic
+      ? tutor.topics.find((t) => t.toLowerCase().includes(topic))
+      : queryText
+        ? tutor.topics.find((t) => t.toLowerCase().includes(queryText))
+        : undefined;
+
+    const matchingSlotsCount = scheduleQuery
+      ? tutor.slots.filter((slot) =>
+          slot.toLowerCase().includes(scheduleQuery)
+        ).length
+      : tutor.slots.length;
+
+    const preferredCourseLabel = courseId
+      ? courseById.get(courseId)?.name
+      : tutorCourses[0]?.name;
+
+    const calc = calculateBriefMatchScore({
+      tutorId: tutor.id,
+      mastersSubtopic: Boolean(matchedTopicLabel),
+      subtopicLabel: matchedTopicLabel,
+      courseLabel: preferredCourseLabel ?? tutorCourses[0]?.name,
+      badge: tutor.badge,
+      rating: tutor.rating,
+      hourlyRate: tutor.hourlyRate,
+      maxBudget,
+      matchingSlotsCount,
+    });
+
+    scored.push({
+      item: {
+        tutor,
+        courses: tutorCourses,
+        matchScore: calc.roundedScore,
+        matchReasons: calc.reasons,
+      },
+      rawTotal: calc.totalScore,
+      bayesianRating: calc.bayesianRating,
+    });
+  }
+
+  if (hasActiveFilter) {
+    scored.sort((a, b) => {
+      if (b.rawTotal !== a.rawTotal) return b.rawTotal - a.rawTotal;
+      if (b.bayesianRating !== a.bayesianRating) {
+        return b.bayesianRating - a.bayesianRating;
+      }
+      if (a.item.tutor.hourlyRate !== b.item.tutor.hourlyRate) {
+        return a.item.tutor.hourlyRate - b.item.tutor.hourlyRate;
+      }
+      return a.item.tutor.id.localeCompare(b.item.tutor.id);
+    });
+  } else {
+    scored.sort((a, b) =>
+      a.item.tutor.name.localeCompare(b.item.tutor.name, "id")
+    );
+  }
+
+  return scored.map((entry) => entry.item);
+}

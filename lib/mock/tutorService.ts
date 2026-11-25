@@ -5,8 +5,9 @@ import type {
   TutorApplication,
   TutorSearchFilters,
   TutorSearchResult,
+  VerificationBadge,
 } from "@/lib/contracts";
-import { calculateBriefMatchScore } from "@/lib/matching";
+import { rankVerifiedTutors } from "@/lib/matching";
 import {
   createSyntheticId,
   getConvexMutationHandlers,
@@ -55,110 +56,7 @@ export const tutorService = {
 
   search(filters: TutorSearchFilters): TutorSearchResult[] {
     const state = getDemoStateSnapshot();
-    const courseById = new Map(state.courses.map((c) => [c.id, c]));
-
-    const query = (filters.query ?? "").trim().toLowerCase();
-    const courseId = (filters.courseId ?? "").trim();
-    const topic = (filters.topic ?? "").trim().toLowerCase();
-    const maxBudget =
-      typeof filters.maxBudget === "number" &&
-      Number.isFinite(filters.maxBudget) &&
-      filters.maxBudget >= 0
-        ? filters.maxBudget
-        : null;
-    const scheduleQuery = (filters.scheduleQuery ?? "").trim().toLowerCase();
-
-    const hasActiveFilter = Boolean(
-      query || courseId || topic || maxBudget !== null || scheduleQuery
-    );
-
-    const results: TutorSearchResult[] = [];
-
-    for (const tutor of state.tutors) {
-      if (!tutor.verified) continue;
-
-      const tutorCourses = tutor.courseIds
-        .map((id) => courseById.get(id))
-        .filter((c): c is Course => Boolean(c));
-
-      if (courseId && !tutor.courseIds.includes(courseId)) continue;
-      if (topic && !tutor.topics.some((t) => t.toLowerCase().includes(topic))) {
-        continue;
-      }
-      if (maxBudget !== null && tutor.hourlyRate > maxBudget) continue;
-      if (
-        scheduleQuery &&
-        !tutor.slots.some((slot) => slot.toLowerCase().includes(scheduleQuery))
-      ) {
-        continue;
-      }
-
-      if (query) {
-        const haystack = [
-          tutor.name,
-          tutor.department,
-          tutor.bio,
-          ...tutorCourses.map((c) => c.name),
-          ...tutor.topics,
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!haystack.includes(query)) continue;
-      }
-
-      if (!hasActiveFilter) {
-        results.push({ tutor, courses: tutorCourses, matchReasons: [] });
-        continue;
-      }
-
-      const mastersSubtopic = topic
-        ? tutor.topics.some((t) => t.toLowerCase().includes(topic))
-        : query
-          ? tutor.topics.some((t) => t.toLowerCase().includes(query))
-          : false;
-
-      const matchedTopicLabel = topic
-        ? tutor.topics.find((t) => t.toLowerCase().includes(topic))
-        : query
-          ? tutor.topics.find((t) => t.toLowerCase().includes(query))
-          : undefined;
-
-      const matchingSlotsCount = scheduleQuery
-        ? tutor.slots.filter((slot) =>
-            slot.toLowerCase().includes(scheduleQuery)
-          ).length
-        : tutor.slots.length;
-
-      const calc = calculateBriefMatchScore({
-        tutorId: tutor.id,
-        mastersSubtopic,
-        subtopicLabel: matchedTopicLabel,
-        courseLabel: tutorCourses[0]?.name,
-        badge: tutor.badge,
-        rating: tutor.rating,
-        hourlyRate: tutor.hourlyRate,
-        maxBudget,
-        matchingSlotsCount,
-      });
-
-      results.push({
-        tutor,
-        courses: tutorCourses,
-        matchScore: calc.roundedScore,
-        matchReasons: calc.reasons,
-      });
-    }
-
-    if (hasActiveFilter) {
-      results.sort((a, b) => {
-        const scoreDiff = (b.matchScore ?? 0) - (a.matchScore ?? 0);
-        return scoreDiff !== 0 ? scoreDiff : a.tutor.hourlyRate - b.tutor.hourlyRate;
-      });
-    } else {
-      results.sort((a, b) => a.tutor.name.localeCompare(b.tutor.name, "id"));
-    }
-
-    return results;
+    return rankVerifiedTutors(state.tutors, state.courses, filters);
   },
 
   // shortcut: demo trusts caller-supplied userId; derive identity from ctx.auth in Convex
@@ -171,17 +69,33 @@ export const tutorService = {
     hourlyRateRaw: string | number;
     slots: string[];
   }): ServiceResult<TutorApplication> {
-    const validation = validateTutorApplicationInput(input);
+    const uniqueCourseIds = Array.from(
+      new Set(input.courseIds.map((id) => id.trim()).filter(Boolean))
+    );
+    const cleanTopics = Array.from(
+      new Set(input.topics.map((t) => t.trim()).filter(Boolean))
+    ).slice(0, 20);
+    const cleanSlots = Array.from(
+      new Set(input.slots.map((s) => s.trim()).filter(Boolean))
+    ).slice(0, 20);
+
+    const validation = validateTutorApplicationInput({
+      ...input,
+      courseIds: uniqueCourseIds,
+      topics: cleanTopics,
+      slots: cleanSlots,
+    });
     if (!validation.valid || !validation.hourlyRate) {
       const firstError =
         Object.values(validation.errors)[0] ??
         "Periksa kembali kelengkapan formulir pendaftaran tutor.";
-      return { ok: false, error: firstError };
+      return { ok: false, code: "INVALID_INPUT", error: firstError };
     }
     const rate = validation.hourlyRate;
 
     let result: ServiceResult<TutorApplication> = {
       ok: false,
+      code: "USER_NOT_FOUND",
       error: "Silakan login demo terlebih dahulu sebelum mendaftar jadi tutor.",
     };
 
@@ -191,15 +105,25 @@ export const tutorService = {
       const user = prev.users.find((u) => u.id === input.userId);
       if (!user) return prev;
 
+      const validCourseIds = new Set(prev.courses.map((c) => c.id));
+      if (uniqueCourseIds.some((cid) => !validCourseIds.has(cid))) {
+        result = {
+          ok: false,
+          code: "COURSE_NOT_FOUND",
+          error: "Terdapat mata kuliah yang tidak terdaftar di katalog.",
+        };
+        return prev;
+      }
+
       const application: TutorApplication = {
         id: createSyntheticId("app-tutor"),
         userId: user.id,
         name: input.name.trim(),
-        courseIds: [...input.courseIds],
-        topics: input.topics.map((t) => t.trim()).filter(Boolean),
+        courseIds: uniqueCourseIds,
+        topics: cleanTopics,
         bio: input.bio.trim(),
         hourlyRate: rate,
-        slots: input.slots.map((s) => s.trim()).filter(Boolean),
+        slots: cleanSlots,
         status: "pending",
         createdAt: Date.now(),
       };
@@ -229,8 +153,109 @@ export const tutorService = {
   },
 
   listApplications(userId: string): TutorApplication[] {
+    if (!userId.trim()) return [];
     return getDemoStateSnapshot()
       .tutorApplications.filter((app) => app.userId === userId)
       .sort((a, b) => b.createdAt - a.createdAt);
+  },
+
+  approveApplication(params: {
+    applicationId: string;
+    department?: string;
+    cohort?: number;
+    badge?: VerificationBadge;
+  }): ServiceResult<Tutor> {
+    if (
+      params.cohort !== undefined &&
+      (!Number.isInteger(params.cohort) ||
+        params.cohort < 2000 ||
+        params.cohort > 2035)
+    ) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        error: "Angkatan (cohort) harus berupa tahun bulat antara 2000–2035.",
+      };
+    }
+
+    const department = (params.department ?? "Teknik Informatika").trim();
+    if (department.length < 2 || department.length > 80) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        error: "Nama departemen wajib 2–80 karakter.",
+      };
+    }
+
+    let result: ServiceResult<Tutor> = {
+      ok: false,
+      code: "NOT_FOUND",
+      error: "Pengajuan tutor tidak ditemukan.",
+    };
+
+    updateDemoState((prev) => {
+      const app = prev.tutorApplications.find(
+        (a) => a.id === params.applicationId
+      );
+      if (!app) return prev;
+
+      const existingTutor = prev.tutors.find((t) => t.userId === app.userId);
+      const slug =
+        app.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") || "kandidat";
+
+      const tutor: Tutor = {
+        id:
+          existingTutor?.id ??
+          `tutor-${slug}-${Date.now().toString(36).slice(-4)}`,
+        userId: app.userId,
+        name: app.name,
+        department,
+        cohort: params.cohort ?? 2023,
+        bio: app.bio,
+        courseIds: app.courseIds,
+        topics: app.topics,
+        hourlyRate: app.hourlyRate,
+        verified: true,
+        badge: params.badge ?? "grade",
+        rating: existingTutor?.rating,
+        completedSessionsDemo: existingTutor?.completedSessionsDemo ?? 0,
+        slots: app.slots,
+      };
+
+      result = { ok: true, data: tutor };
+      return {
+        ...prev,
+        users: prev.users.map((u) =>
+          u.id === app.userId ? { ...u, role: "tutor" } : u
+        ),
+        tutors: existingTutor
+          ? prev.tutors.map((t) => (t.id === existingTutor.id ? tutor : t))
+          : [...prev.tutors, tutor],
+        tutorApplications: prev.tutorApplications.filter(
+          (a) => a.id !== app.id
+        ),
+      };
+    });
+
+    return result;
+  },
+
+  rejectApplication(applicationId: string): { rejected: boolean } {
+    let rejected = false;
+    updateDemoState((prev) => {
+      const exists = prev.tutorApplications.some((a) => a.id === applicationId);
+      if (!exists) return prev;
+      rejected = true;
+      return {
+        ...prev,
+        tutorApplications: prev.tutorApplications.filter(
+          (a) => a.id !== applicationId
+        ),
+      };
+    });
+    return { rejected };
   },
 };

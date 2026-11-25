@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Notice";
-import { resetDemoStore } from "@/lib/mock";
+import { authService } from "@/lib/mock";
 
 export default function GlobalErrorBoundary({
   reset,
@@ -19,7 +19,7 @@ export default function GlobalErrorBoundary({
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={() => {
-                resetDemoStore();
+                authService.resetDemo();
                 reset();
               }}
             >

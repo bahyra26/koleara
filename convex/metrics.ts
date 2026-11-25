@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import { isAdminAuthorized } from "./validators";
 
 /**
  * Ekstraksi Metrik Pilot (Bab 6.1 Technical Design Brief - Issue K-23)
@@ -10,7 +11,7 @@ import { query } from "./_generated/server";
  * - Rata-rata rating tutor
  */
 export const getPilotMetrics = query({
-  args: {},
+  args: { adminKey: v.optional(v.string()) },
   returns: v.object({
     totalUsers: v.number(),
     totalLearners: v.number(),
@@ -26,7 +27,25 @@ export const getPilotMetrics = query({
     averageTutorRating: v.number(),
     totalRevenueIdr: v.number(),
   }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
+    if (!isAdminAuthorized(args.adminKey)) {
+      return {
+        totalUsers: 0,
+        totalLearners: 0,
+        totalVerifiedTutors: 0,
+        pendingTutorApplications: 0,
+        totalConversations: 0,
+        totalMessages: 0,
+        totalBookings: 0,
+        acceptedOrPaidBookings: 0,
+        paidBookings: 0,
+        acceptanceRatePercent: 0,
+        paymentCompletionRatePercent: 0,
+        averageTutorRating: 0,
+        totalRevenueIdr: 0,
+      };
+    }
+
     const [
       users,
       tutors,
@@ -36,7 +55,7 @@ export const getPilotMetrics = query({
       bookings,
       payments,
     ] = await Promise.all([
-      ctx.db.query("users").take(200),
+      ctx.db.query("users").order("desc").take(200),
       ctx.db
         .query("tutors")
         .withIndex("by_verified_and_hourlyRate", (q) => q.eq("verified", true))
@@ -45,12 +64,13 @@ export const getPilotMetrics = query({
         .query("tutorApplications")
         .withIndex("by_status_and_createdAt", (q) => q.eq("status", "pending"))
         .take(200),
-      ctx.db.query("conversations").take(200),
-      ctx.db.query("messages").take(500),
-      ctx.db.query("bookings").take(300),
+      ctx.db.query("conversations").order("desc").take(200),
+      ctx.db.query("messages").order("desc").take(500),
+      ctx.db.query("bookings").order("desc").take(300),
       ctx.db
         .query("payments")
         .withIndex("by_status", (q) => q.eq("status", "paid"))
+        .order("desc")
         .take(300),
     ]);
 

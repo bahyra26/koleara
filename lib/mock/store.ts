@@ -100,9 +100,17 @@ export function getConvexConnectedServerSnapshot(): boolean {
 }
 
 export function applyRemoteCollections(remote: RemoteCollections): void {
+  const activeUser =
+    currentState.currentUserId &&
+    !remote.users.some((u) => u.id === currentState.currentUserId)
+      ? currentState.users.find((u) => u.id === currentState.currentUserId)
+      : undefined;
+
+  const mergedUsers = activeUser ? [...remote.users, activeUser] : remote.users;
+
   const next: DemoState = {
     ...currentState,
-    users: remote.users,
+    users: mergedUsers,
     courses: remote.courses,
     tutors: remote.tutors,
     tutorApplications: remote.tutorApplications,

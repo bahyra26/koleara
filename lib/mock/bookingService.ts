@@ -43,13 +43,14 @@ export const bookingService = {
     if (!validation.valid || !validation.price || !params.startAt) {
       const firstError =
         Object.values(validation.errors)[0] ?? "Data tawaran tidak valid.";
-      return { ok: false, error: firstError };
+      return { ok: false, code: "INVALID_INPUT", error: firstError };
     }
     const price = validation.price;
     const startAt = params.startAt;
 
     let result: ServiceResult<Booking> = {
       ok: false,
+      code: "CONVERSATION_NOT_FOUND",
       error: "Percakapan tidak ditemukan.",
     };
     let createdBooking: Booking | null = null;
@@ -62,18 +63,32 @@ export const bookingService = {
       if (!conversation) return prev;
 
       const tutor = prev.tutors.find((t) => t.id === conversation.tutorId);
-      if (!tutor || tutor.userId !== params.actorUserId) {
+      if (!tutor || !tutor.verified || tutor.userId !== params.actorUserId) {
         result = {
           ok: false,
+          code: "FORBIDDEN",
           error:
-            "Hanya tutor pada percakapan ini yang dapat membuat tawaran sesi.",
+            "Hanya tutor terverifikasi pada percakapan ini yang dapat membuat tawaran sesi.",
         };
         return prev;
       }
 
       const course = prev.courses.find((c) => c.id === params.courseId);
       if (!course) {
-        result = { ok: false, error: "Mata kuliah tidak valid." };
+        result = {
+          ok: false,
+          code: "COURSE_NOT_FOUND",
+          error: "Mata kuliah tidak valid.",
+        };
+        return prev;
+      }
+
+      if (!tutor.courseIds.includes(course.id)) {
+        result = {
+          ok: false,
+          code: "INVALID_COURSE_FOR_TUTOR",
+          error: "Tutor tidak terdaftar mengampu mata kuliah tersebut.",
+        };
         return prev;
       }
 
@@ -141,6 +156,7 @@ export const bookingService = {
   }): ServiceResult<Booking> {
     let result: ServiceResult<Booking> = {
       ok: false,
+      code: "BOOKING_NOT_FOUND",
       error: "Tawaran sesi tidak ditemukan.",
     };
 
@@ -151,6 +167,7 @@ export const bookingService = {
       if (booking.learnerId !== params.actorUserId) {
         result = {
           ok: false,
+          code: "FORBIDDEN",
           error:
             "Hanya mahasiswa penerima tawaran yang dapat menerima tawaran ini.",
         };
@@ -246,6 +263,7 @@ export const bookingService = {
   }): ServiceResult<Booking> {
     let result: ServiceResult<Booking> = {
       ok: false,
+      code: "BOOKING_NOT_FOUND",
       error: "Tawaran sesi tidak ditemukan.",
     };
 
@@ -256,6 +274,7 @@ export const bookingService = {
       if (booking.learnerId !== params.actorUserId) {
         result = {
           ok: false,
+          code: "FORBIDDEN",
           error:
             "Hanya mahasiswa penerima tawaran yang dapat menolak tawaran ini.",
         };
@@ -265,6 +284,7 @@ export const bookingService = {
       if (booking.status !== "offered") {
         result = {
           ok: false,
+          code: "INVALID_STATE",
           error: "Tawaran ini tidak lagi dalam status menunggu konfirmasi.",
         };
         return prev;

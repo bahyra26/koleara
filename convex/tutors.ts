@@ -1,8 +1,14 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { calculateBriefMatchScore } from "./matching";
+import { rankVerifiedTutors } from "./matching";
 import {
   courseObjectValidator,
+  isValidAppId,
+  MAX_BIO_LENGTH,
+  MAX_HOURLY_RATE_IDR,
+  MAX_NAME_LENGTH,
+  MAX_SLOT_LENGTH,
+  MAX_TOPIC_LENGTH,
   serviceResultValidator,
   tutorApplicationObjectValidator,
   tutorObjectValidator,
@@ -32,7 +38,7 @@ export const getTopics = query({
       const course = await ctx.db
         .query("courses")
         .withIndex("by_appId", (q) => q.eq("appId", courseId))
-        .unique();
+        .first();
       return course ? course.topics : [];
     }
 
@@ -51,33 +57,6 @@ export const getTopics = query({
   },
 });
 
-export const listVerifiedTutors = query({
-  args: {},
-  returns: v.array(tutorObjectValidator),
-  handler: async (ctx) => {
-    const rows = await ctx.db
-      .query("tutors")
-      .withIndex("by_verified_and_hourlyRate", (q) => q.eq("verified", true))
-      .take(100);
-    return rows.map((row) => ({
-      id: row.appId,
-      userId: row.userId,
-      name: row.name,
-      department: row.department,
-      cohort: row.cohort,
-      bio: row.bio,
-      courseIds: row.courseIds,
-      topics: row.topics,
-      hourlyRate: row.hourlyRate,
-      verified: row.verified,
-      badge: row.badge,
-      rating: row.rating,
-      completedSessionsDemo: row.completedSessionsDemo,
-      slots: row.slots,
-    }));
-  },
-});
-
 export const getTutorById = query({
   args: { tutorId: v.string() },
   returns: v.union(tutorObjectValidator, v.null()),
@@ -85,7 +64,7 @@ export const getTutorById = query({
     const row = await ctx.db
       .query("tutors")
       .withIndex("by_appId", (q) => q.eq("appId", args.tutorId))
-      .unique();
+      .first();
     if (!row || !row.verified) return null;
     return {
       id: row.appId,
@@ -131,167 +110,36 @@ export const searchTutors = query({
         .take(100),
     ]);
 
-    const courseById = new Map(
-      courseRows.map((c) => [
-        c.appId,
-        {
-          id: c.appId,
-          name: c.name,
-          code: c.code,
-          description: c.description,
-          topics: c.topics,
-        },
-      ]),
-    );
+    const courses = courseRows.map((c) => ({
+      id: c.appId,
+      name: c.name,
+      code: c.code,
+      description: c.description,
+      topics: c.topics,
+    }));
 
-    const queryText = (args.query ?? "").trim().toLowerCase();
-    const courseId = (args.courseId ?? "").trim();
-    const topic = (args.topic ?? "").trim().toLowerCase();
-    const maxBudget =
-      typeof args.maxBudget === "number" &&
-      Number.isFinite(args.maxBudget) &&
-      args.maxBudget >= 0
-        ? args.maxBudget
-        : null;
-    const scheduleQuery = (args.scheduleQuery ?? "").trim().toLowerCase();
+    const tutors = tutorRows.map((row) => ({
+      id: row.appId,
+      userId: row.userId,
+      name: row.name,
+      department: row.department,
+      cohort: row.cohort,
+      bio: row.bio,
+      courseIds: row.courseIds,
+      topics: row.topics,
+      hourlyRate: row.hourlyRate,
+      verified: row.verified,
+      badge: row.badge,
+      rating: row.rating,
+      completedSessionsDemo: row.completedSessionsDemo,
+      slots: row.slots,
+    }));
 
-    const hasActiveFilter = Boolean(
-      queryText || courseId || topic || maxBudget !== null || scheduleQuery,
-    );
-
-    const results: Array<{
-      tutor: {
-        id: string;
-        userId: string;
-        name: string;
-        department: string;
-        cohort: number;
-        bio: string;
-        courseIds: string[];
-        topics: string[];
-        hourlyRate: number;
-        verified: boolean;
-        badge?: "grade" | "asdos";
-        rating?: number;
-        completedSessionsDemo?: number;
-        slots: string[];
-      };
-      courses: Array<{
-        id: string;
-        name: string;
-        code: string;
-        description: string;
-        topics: string[];
-      }>;
-      matchScore?: number;
-      matchReasons: string[];
-    }> = [];
-
-    for (const row of tutorRows) {
-      const tutor = {
-        id: row.appId,
-        userId: row.userId,
-        name: row.name,
-        department: row.department,
-        cohort: row.cohort,
-        bio: row.bio,
-        courseIds: row.courseIds,
-        topics: row.topics,
-        hourlyRate: row.hourlyRate,
-        verified: row.verified,
-        badge: row.badge,
-        rating: row.rating,
-        completedSessionsDemo: row.completedSessionsDemo,
-        slots: row.slots,
-      };
-
-      const tutorCourses = tutor.courseIds
-        .map((id) => courseById.get(id))
-        .filter((c): c is NonNullable<typeof c> => Boolean(c));
-
-      if (courseId && !tutor.courseIds.includes(courseId)) continue;
-      if (topic && !tutor.topics.some((t) => t.toLowerCase().includes(topic))) {
-        continue;
-      }
-      if (maxBudget !== null && tutor.hourlyRate > maxBudget) continue;
-      if (
-        scheduleQuery &&
-        !tutor.slots.some((slot) => slot.toLowerCase().includes(scheduleQuery))
-      ) {
-        continue;
-      }
-
-      if (queryText) {
-        const haystack = [
-          tutor.name,
-          tutor.department,
-          tutor.bio,
-          ...tutorCourses.map((c) => c.name),
-          ...tutor.topics,
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!haystack.includes(queryText)) continue;
-      }
-
-      if (!hasActiveFilter) {
-        results.push({ tutor, courses: tutorCourses, matchReasons: [] });
-        continue;
-      }
-
-      const mastersSubtopic = topic
-        ? tutor.topics.some((t) => t.toLowerCase().includes(topic))
-        : queryText
-          ? tutor.topics.some((t) => t.toLowerCase().includes(queryText))
-          : false;
-
-      const matchedTopicLabel = topic
-        ? tutor.topics.find((t) => t.toLowerCase().includes(topic))
-        : queryText
-          ? tutor.topics.find((t) => t.toLowerCase().includes(queryText))
-          : undefined;
-
-      const matchingSlotsCount = scheduleQuery
-        ? tutor.slots.filter((slot) =>
-            slot.toLowerCase().includes(scheduleQuery),
-          ).length
-        : tutor.slots.length;
-
-      const calc = calculateBriefMatchScore({
-        tutorId: tutor.id,
-        mastersSubtopic,
-        subtopicLabel: matchedTopicLabel,
-        courseLabel: tutorCourses[0]?.name,
-        badge: tutor.badge,
-        rating: tutor.rating,
-        hourlyRate: tutor.hourlyRate,
-        maxBudget,
-        matchingSlotsCount,
-      });
-
-      results.push({
-        tutor,
-        courses: tutorCourses,
-        matchScore: calc.roundedScore,
-        matchReasons: calc.reasons,
-      });
-    }
-
-    if (hasActiveFilter) {
-      results.sort((a, b) => {
-        const scoreDiff = (b.matchScore ?? 0) - (a.matchScore ?? 0);
-        return scoreDiff !== 0
-          ? scoreDiff
-          : a.tutor.hourlyRate - b.tutor.hourlyRate;
-      });
-    } else {
-      results.sort((a, b) => a.tutor.name.localeCompare(b.tutor.name, "id"));
-    }
-
-    return results;
+    return rankVerifiedTutors(tutors, courses, args);
   },
 });
 
+// shortcut: demo trusts caller-supplied userId until Convex Auth is wired
 export const submitApplication = mutation({
   args: {
     appId: v.optional(v.string()),
@@ -306,49 +154,105 @@ export const submitApplication = mutation({
   returns: serviceResultValidator(tutorApplicationObjectValidator),
   handler: async (ctx, args) => {
     const trimmedName = args.name.trim();
-    if (trimmedName.length < 2) {
-      return { ok: false as const, error: "Nama lengkap minimal 2 karakter." };
-    }
-    if (args.courseIds.length === 0) {
+    if (trimmedName.length < 2 || trimmedName.length > MAX_NAME_LENGTH) {
       return {
         ok: false as const,
-        error: "Pilih minimal satu mata kuliah.",
-      };
-    }
-    const cleanTopics = args.topics.map((t) => t.trim()).filter(Boolean);
-    if (cleanTopics.length === 0) {
-      return {
-        ok: false as const,
-        error: "Pilih atau tulis minimal satu topik.",
-      };
-    }
-    const trimmedBio = args.bio.trim();
-    if (trimmedBio.length < 15) {
-      return { ok: false as const, error: "Bio singkat minimal 15 karakter." };
-    }
-    if (!Number.isSafeInteger(args.hourlyRate) || args.hourlyRate <= 0) {
-      return {
-        ok: false as const,
-        error: "Tarif per 60 menit harus lebih dari Rp0.",
-      };
-    }
-    const cleanSlots = args.slots.map((s) => s.trim()).filter(Boolean);
-    if (cleanSlots.length === 0) {
-      return {
-        ok: false as const,
-        error: "Tambahkan minimal satu jadwal tersedia.",
+        code: "INVALID_INPUT",
+        error: `Nama lengkap wajib 2–${MAX_NAME_LENGTH} karakter.`,
       };
     }
 
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_appId", (q) => q.eq("appId", args.userId))
-      .unique();
+    const uniqueCourseIds = Array.from(
+      new Set(args.courseIds.map((id) => id.trim()).filter(Boolean)),
+    );
+    if (uniqueCourseIds.length === 0 || uniqueCourseIds.length > 10) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Pilih minimal satu mata kuliah yang valid.",
+      };
+    }
+
+    const cleanTopics = Array.from(
+      new Set(args.topics.map((t) => t.trim()).filter(Boolean)),
+    ).slice(0, 20);
+    if (
+      cleanTopics.length === 0 ||
+      cleanTopics.some((t) => t.length > MAX_TOPIC_LENGTH)
+    ) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Pilih atau tulis minimal satu topik yang valid.",
+      };
+    }
+
+    const trimmedBio = args.bio.trim();
+    if (trimmedBio.length < 15 || trimmedBio.length > MAX_BIO_LENGTH) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: `Bio singkat wajib 15–${MAX_BIO_LENGTH} karakter.`,
+      };
+    }
+
+    if (
+      !Number.isSafeInteger(args.hourlyRate) ||
+      args.hourlyRate <= 0 ||
+      args.hourlyRate > MAX_HOURLY_RATE_IDR
+    ) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Tarif per 60 menit harus bilangan bulat Rp1–Rp10.000.000.",
+      };
+    }
+
+    const cleanSlots = Array.from(
+      new Set(args.slots.map((s) => s.trim()).filter(Boolean)),
+    ).slice(0, 20);
+    if (
+      cleanSlots.length === 0 ||
+      cleanSlots.some((s) => s.length > MAX_SLOT_LENGTH)
+    ) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Tambahkan minimal satu jadwal tersedia yang valid.",
+      };
+    }
+
+    if (args.appId !== undefined && !isValidAppId(args.appId)) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Format ID pengajuan tidak valid.",
+      };
+    }
+
+    const [user, validCourses] = await Promise.all([
+      ctx.db
+        .query("users")
+        .withIndex("by_appId", (q) => q.eq("appId", args.userId))
+        .first(),
+      ctx.db.query("courses").take(50),
+    ]);
+
     if (!user) {
       return {
         ok: false as const,
+        code: "USER_NOT_FOUND",
         error:
           "Silakan login demo terlebih dahulu sebelum mendaftar jadi tutor.",
+      };
+    }
+
+    const validCourseIds = new Set(validCourses.map((c) => c.appId));
+    if (uniqueCourseIds.some((cid) => !validCourseIds.has(cid))) {
+      return {
+        ok: false as const,
+        code: "COURSE_NOT_FOUND",
+        error: "Terdapat mata kuliah yang tidak terdaftar di katalog.",
       };
     }
 
@@ -360,9 +264,16 @@ export const submitApplication = mutation({
     const existing = await ctx.db
       .query("tutorApplications")
       .withIndex("by_appId", (q) => q.eq("appId", appId))
-      .unique();
+      .first();
 
     if (existing) {
+      if (existing.userId !== user.appId) {
+        return {
+          ok: false as const,
+          code: "CONFLICT",
+          error: "ID pengajuan sudah digunakan.",
+        };
+      }
       return {
         ok: true as const,
         data: {
@@ -384,7 +295,7 @@ export const submitApplication = mutation({
       appId,
       userId: user.appId,
       name: trimmedName,
-      courseIds: args.courseIds,
+      courseIds: uniqueCourseIds,
       topics: cleanTopics,
       bio: trimmedBio,
       hourlyRate: args.hourlyRate,
@@ -399,7 +310,7 @@ export const submitApplication = mutation({
         id: appId,
         userId: user.appId,
         name: trimmedName,
-        courseIds: args.courseIds,
+        courseIds: uniqueCourseIds,
         topics: cleanTopics,
         bio: trimmedBio,
         hourlyRate: args.hourlyRate,
@@ -415,6 +326,7 @@ export const listApplications = query({
   args: { userId: v.string() },
   returns: v.array(tutorApplicationObjectValidator),
   handler: async (ctx, args) => {
+    if (!args.userId.trim()) return [];
     const rows = await ctx.db
       .query("tutorApplications")
       .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", args.userId))
