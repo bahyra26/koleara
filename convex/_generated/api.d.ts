@@ -12,7 +12,6 @@ import type * as admin from "../admin.js";
 import type * as auth from "../auth.js";
 import type * as bookings from "../bookings.js";
 import type * as chat from "../chat.js";
-import type * as http from "../http.js";
 import type * as matching from "../matching.js";
 import type * as metrics from "../metrics.js";
 import type * as payments from "../payments.js";
@@ -32,7 +31,6 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   bookings: typeof bookings;
   chat: typeof chat;
-  http: typeof http;
   matching: typeof matching;
   metrics: typeof metrics;
   payments: typeof payments;
