@@ -1,0 +1,42 @@
+meta {
+  name: [MUTATION] payments.submitDemoProof
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/convex/payments/submitDemoProof
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "bookingId": "bk-example",
+    "actorUserId": "user-learner-demo",
+    "proofName": "bukti-qris-bima.png"
+  }
+}
+
+docs {
+  # payments:submitDemoProof (MUTATION)
+  
+  Kirim bukti pembayaran QRIS Demo (ubah ke pending_verification)
+  
+  Menyimpan nama file bukti pembayaran simulasi dan mengubah status pembayaran menjadi `pending_verification`.
+  
+  ## Parameter (`args`)
+  - `bookingId` (string, Wajib): ID booking
+  - `actorUserId` (string, Wajib): ID mahasiswa pemesan
+  - `proofName` (string, Opsional): Nama file bukti pembayaran simulasi
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const submitProof = useMutation(api.payments.submitDemoProof);
+  await submitProof({ bookingId: "bk-example", actorUserId: "user-learner-demo", proofName: "bukti-qris-bima.png" });
+  ```
+}

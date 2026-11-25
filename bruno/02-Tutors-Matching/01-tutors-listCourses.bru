@@ -1,0 +1,35 @@
+meta {
+  name: [QUERY] tutors.listCourses
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/convex/tutors/listCourses
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+docs {
+  # tutors:listCourses (QUERY)
+  
+  Ambil daftar mata kuliah MVP (Kalkulus 1 & Fisika Dasar 1)
+  
+  Mengembalikan seluruh mata kuliah beserta daftar subtopik resmi SKPB ITS.
+  
+  ## Parameter (`args`)
+  Tidak memerlukan parameter (`{}`).
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const courses = useQuery(api.tutors.listCourses, {});
+  ```
+}

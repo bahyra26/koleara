@@ -1,0 +1,35 @@
+meta {
+  name: [QUERY] state.getAppState
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/convex/state/getAppState
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+docs {
+  # state:getAppState (QUERY)
+  
+  Ambil snapshot reaktif seluruh tabel Convex
+  
+  Digunakan oleh `ConvexRealtimeBridge` untuk menyinkronkan database Convex secara real-time ke seluruh komponen UI.
+  
+  ## Parameter (`args`)
+  Tidak memerlukan parameter (`{}`).
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const appState = useQuery(api.state.getAppState, {});
+  ```
+}

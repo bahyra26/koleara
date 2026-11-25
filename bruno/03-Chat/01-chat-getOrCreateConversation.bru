@@ -1,0 +1,40 @@
+meta {
+  name: [MUTATION] chat.getOrCreateConversation
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/convex/chat/getOrCreateConversation
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "learnerId": "user-learner-demo",
+    "tutorId": "tutor-nadia"
+  }
+}
+
+docs {
+  # chat:getOrCreateConversation (MUTATION)
+  
+  Buka atau buat ruang percakapan Mahasiswa <-> Tutor
+  
+  Digunakan saat tombol `Hubungi Tutor` ditekan di halaman profil tutor. Mencegah tutor menghubungi akunnya sendiri (`SELF_CHAT_NOT_ALLOWED`).
+  
+  ## Parameter (`args`)
+  - `learnerId` (string, Wajib): ID pengguna mahasiswa
+  - `tutorId` (string, Wajib): ID profil tutor
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const openChat = useMutation(api.chat.getOrCreateConversation);
+  await openChat({ learnerId: "user-learner-demo", tutorId: "tutor-nadia" });
+  ```
+}

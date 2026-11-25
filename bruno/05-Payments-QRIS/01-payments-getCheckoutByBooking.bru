@@ -1,0 +1,37 @@
+meta {
+  name: [QUERY] payments.getCheckoutByBooking
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/convex/payments/getCheckoutByBooking
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "bookingId": "bk-example"
+  }
+}
+
+docs {
+  # payments:getCheckoutByBooking (QUERY)
+  
+  Ambil data lengkap halaman Pembayaran (/pembayaran/[id]): Tutor, Matkul, Harga, Status
+  
+  Menggabungkan data `booking`, `payment`, `tutor`, `learner`, dan `course` untuk ditampilkan pada ringkasan pembayaran QRIS.
+  
+  ## Parameter (`args`)
+  - `bookingId` (string, Wajib): ID booking yang sudah diterima (accepted/paid)
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const checkout = useQuery(api.payments.getCheckoutByBooking, { bookingId: "bk-example" });
+  ```
+}

@@ -1,0 +1,35 @@
+meta {
+  name: [QUERY] tutors.listVerifiedTutors
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/convex/tutors/listVerifiedTutors
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+docs {
+  # tutors:listVerifiedTutors (QUERY)
+  
+  Ambil semua profil tutor yang sudah terverifikasi
+  
+  Menggunakan index `by_verified_and_hourlyRate` untuk hanya mengembalikan tutor dengan `verified: true`.
+  
+  ## Parameter (`args`)
+  Tidak memerlukan parameter (`{}`).
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const tutors = useQuery(api.tutors.listVerifiedTutors, {});
+  ```
+}

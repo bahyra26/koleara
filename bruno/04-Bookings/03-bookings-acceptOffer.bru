@@ -1,0 +1,40 @@
+meta {
+  name: [MUTATION] bookings.acceptOffer
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/convex/bookings/acceptOffer
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "bookingId": "bk-example",
+    "actorUserId": "user-learner-demo"
+  }
+}
+
+docs {
+  # bookings:acceptOffer (MUTATION)
+  
+  Mahasiswa menerima tawaran sesi (ACID Transaction Anti-Bentrok Jadwal)
+  
+  Mengecek apakah jadwal belum lewat (`OFFER_EXPIRED`), memastikan tidak ada sesi lain milik tutor tersebut yang beririsan dalam rentang 60 menit (`SCHEDULE_CONFLICT`), mengubah status menjadi `accepted`, dan menyiapkan tagihan `unpaid` di tabel `payments`.
+  
+  ## Parameter (`args`)
+  - `bookingId` (string, Wajib): ID booking tawaran sesi
+  - `actorUserId` (string, Wajib): ID akun mahasiswa penerima tawaran
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const acceptOffer = useMutation(api.bookings.acceptOffer);
+  await acceptOffer({ bookingId: "bk-example", actorUserId: "user-learner-demo" });
+  ```
+}

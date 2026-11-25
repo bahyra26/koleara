@@ -1,0 +1,36 @@
+meta {
+  name: [MUTATION] seed.resetDemoData
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/convex/seed/resetDemoData
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+docs {
+  # seed:resetDemoData (MUTATION)
+  
+  Reset seluruh database Convex kembali ke kondisi seed awal
+  
+  Dipanggil oleh tombol `Reset Demo` di banner atas aplikasi untuk mengembalikan seluruh data ke kondisi awal.
+  
+  ## Parameter (`args`)
+  Tidak memerlukan parameter (`{}`).
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const resetDemo = useMutation(api.seed.resetDemoData);
+  await resetDemo({});
+  ```
+}

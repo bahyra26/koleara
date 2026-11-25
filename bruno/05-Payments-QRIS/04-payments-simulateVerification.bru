@@ -1,0 +1,40 @@
+meta {
+  name: [MUTATION] payments.simulateVerification
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/convex/payments/simulateVerification
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "bookingId": "bk-example",
+    "decision": "approve"
+  }
+}
+
+docs {
+  # payments:simulateVerification (MUTATION)
+  
+  Simulasikan verifikasi admin (Approve -> Lunas & Pop-up Success / Reject)
+  
+  Saat `decision: 'approve'`, mengubah status `payment` dan `booking` menjadi `paid` sehingga memicu Pop-up Success di layar pembayaran.
+  
+  ## Parameter (`args`)
+  - `bookingId` (string, Wajib): ID booking
+  - `decision` ("approve" | "reject", Wajib): Keputusan verifikasi (approve = lunas, reject = tolak)
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const verifyPay = useMutation(api.payments.simulateVerification);
+  await verifyPay({ bookingId: "bk-example", decision: "approve" });
+  ```
+}

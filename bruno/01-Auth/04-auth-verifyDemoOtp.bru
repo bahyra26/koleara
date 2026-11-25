@@ -1,0 +1,43 @@
+meta {
+  name: [MUTATION] auth.verifyDemoOtp
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/convex/auth/verifyDemoOtp
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "0000000001@student.its.ac.id",
+    "otp": "123456",
+    "mode": "login"
+  }
+}
+
+docs {
+  # auth:verifyDemoOtp (MUTATION)
+  
+  Verifikasi kode OTP 123456 & buat/masuk sesi pengguna
+  
+  Memverifikasi kode OTP `123456`. Jika mode `signup`, membuat baris baru di tabel `users` dengan role `learner`.
+  
+  ## Parameter (`args`)
+  - `email` (string, Wajib): Email mahasiswa ITS
+  - `otp` (string, Wajib): Kode OTP 6 digit (123456)
+  - `mode` ("login" | "signup", Wajib): Mode login atau signup
+  - `name` (string, Opsional): Nama lengkap saat pendaftaran akun baru
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const verifyOtp = useMutation(api.auth.verifyDemoOtp);
+  await verifyOtp({ email: "0000000001@student.its.ac.id", otp: "123456", mode: "login" });
+  ```
+}

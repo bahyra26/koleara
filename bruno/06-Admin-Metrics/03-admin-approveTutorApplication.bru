@@ -1,0 +1,44 @@
+meta {
+  name: [MUTATION] admin.approveTutorApplication
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/convex/admin/approveTutorApplication
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "applicationId": "app-tutor-example",
+    "department": "Teknik Informatika",
+    "cohort": 2023,
+    "badge": "grade"
+  }
+}
+
+docs {
+  # admin:approveTutorApplication (MUTATION)
+  
+  Setujui pendaftaran Jadi Tutor & aktifkan profil tutor di /cari
+  
+  Mengubah role user menjadi `tutor`, membuat profil di tabel `tutors` dengan `verified: true` dan lencana (`grade` / `asdos`), serta menghapus antrean aplikasi pending.
+  
+  ## Parameter (`args`)
+  - `applicationId` (string, Wajib): ID pengajuan tutor
+  - `department` (string, Opsional): Departemen ITS tutor
+  - `cohort` (number, Opsional): Tahun angkatan tutor
+  - `badge` ("grade" | "asdos", Opsional): Lencana verifikasi (grade atau asdos)
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const approve = useMutation(api.admin.approveTutorApplication);
+  await approve({ applicationId: "app-tutor-xxx", department: "Teknik Informatika", cohort: 2023, badge: "grade" });
+  ```
+}

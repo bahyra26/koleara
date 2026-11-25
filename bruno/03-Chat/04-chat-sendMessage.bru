@@ -1,0 +1,42 @@
+meta {
+  name: [MUTATION] chat.sendMessage
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/convex/chat/sendMessage
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "conversationId": "conv-demo-seed-1",
+    "senderId": "user-learner-demo",
+    "content": "Halo Kak Nadia, saya siap untuk sesi Kamis malam."
+  }
+}
+
+docs {
+  # chat:sendMessage (MUTATION)
+  
+  Kirim bubble pesan teks baru ke ruang chat
+  
+  Memvalidasi bahwa pengirim adalah peserta percakapan (Mahasiswa atau Tutor), menyimpan bubble pesan baru, dan memperbarui `lastMessageAt`.
+  
+  ## Parameter (`args`)
+  - `conversationId` (string, Wajib): ID percakapan
+  - `senderId` (string, Wajib): ID pengirim pesan
+  - `content` (string, Wajib): Isi teks pesan chat
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const sendMsg = useMutation(api.chat.sendMessage);
+  await sendMsg({ conversationId: "conv-demo-seed-1", senderId: "user-learner-demo", content: "Siap Kak, terima kasih!" });
+  ```
+}

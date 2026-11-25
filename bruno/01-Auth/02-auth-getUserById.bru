@@ -1,0 +1,37 @@
+meta {
+  name: [QUERY] auth.getUserById
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/convex/auth/getUserById
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "userId": "user-learner-demo"
+  }
+}
+
+docs {
+  # auth:getUserById (QUERY)
+  
+  Ambil detail satu pengguna berdasarkan ID
+  
+  Mencari pengguna di tabel `users` menggunakan index `by_appId`.
+  
+  ## Parameter (`args`)
+  - `userId` (string, Wajib): ID aplikasi pengguna (contoh: user-learner-demo)
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const user = useQuery(api.auth.getUserById, { userId: "user-learner-demo" });
+  ```
+}

@@ -1,0 +1,37 @@
+meta {
+  name: [QUERY] bookings.getBookingById
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/convex/bookings/getBookingById
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "bookingId": "bk-example"
+  }
+}
+
+docs {
+  # bookings:getBookingById (QUERY)
+  
+  Ambil detail 1 booking / tawaran sesi berdasarkan ID
+  
+  Mencari data sesi di tabel `bookings` dengan index `by_appId`.
+  
+  ## Parameter (`args`)
+  - `bookingId` (string, Wajib): ID booking sesi
+  
+  ## Pemanggilan di React (Convex Hook)
+  ```ts
+  const booking = useQuery(api.bookings.getBookingById, { bookingId: "bk-example" });
+  ```
+}
