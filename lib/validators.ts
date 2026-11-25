@@ -85,6 +85,7 @@ const ALLOWLISTED_INTERNAL_PATHS: RegExp[] = [
   /^\/$/,
   /^\/cari$/,
   /^\/jadi-tutor$/,
+  /^\/api-docs$/,
   /^\/chat$/,
   /^\/chat\/[a-zA-Z0-9_-]+$/,
   /^\/tutor\/[a-zA-Z0-9_-]+$/,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -58,6 +59,12 @@ export function DemoBanner() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            href="/api-docs"
+            className="rounded border border-neutral-400 bg-white px-2.5 py-1 text-xs font-semibold text-neutral-900 transition-colors hover:bg-neutral-200"
+          >
+            API Docs (Swagger)
+          </Link>
           {confirming ? (
             <>
               <span className="text-neutral-700">Reset semua data demo?</span>
