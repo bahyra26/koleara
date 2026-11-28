@@ -7,6 +7,7 @@ import {
 } from "@/lib/mock/store";
 import {
   DEMO_OTP_CODE,
+  MAX_NAME_LENGTH,
   validateDemoOtp,
   validateItsEmail,
 } from "@/lib/validators";
@@ -29,7 +30,7 @@ export const authService = {
       return {
         ok: false,
         code: "INVALID_EMAIL",
-        error: emailCheck.error ?? "Email ITS tidak valid.",
+        error: emailCheck.error ?? "Invalid ITS student email.",
       };
     }
 
@@ -43,7 +44,7 @@ export const authService = {
           ok: false,
           code: "USER_NOT_FOUND",
           error:
-            "Akun demo dengan email ITS ini belum terdaftar. Gunakan akun contoh atau lanjut ke Daftar Demo.",
+            "No demo account found for this ITS email. Pick a demo profile below or sign up.",
         };
       }
       return {
@@ -52,11 +53,15 @@ export const authService = {
       };
     }
 
-    if ((params.name ?? "").trim().length < 2) {
+    const trimmedSignupName = (params.name ?? "").trim();
+    if (
+      trimmedSignupName.length < 2 ||
+      trimmedSignupName.length > MAX_NAME_LENGTH
+    ) {
       return {
         ok: false,
         code: "INVALID_NAME",
-        error: "Nama lengkap minimal 2 karakter.",
+        error: `Full name must be 2–${MAX_NAME_LENGTH} characters.`,
       };
     }
 
@@ -65,7 +70,7 @@ export const authService = {
         ok: false,
         code: "EMAIL_EXISTS",
         error:
-          "Email ITS demo ini sudah terdaftar. Silakan masuk melalui halaman Login.",
+          "This ITS student email is already registered. Please sign in instead.",
       };
     }
 
@@ -86,7 +91,7 @@ export const authService = {
       return {
         ok: false,
         code: "INVALID_EMAIL",
-        error: emailCheck.error ?? "Email ITS tidak valid.",
+        error: emailCheck.error ?? "Invalid ITS student email.",
       };
     }
 
@@ -95,22 +100,25 @@ export const authService = {
       return {
         ok: false,
         code: "INVALID_OTP",
-        error: otpCheck.error ?? "Kode OTP demo tidak sesuai.",
+        error: otpCheck.error ?? "Invalid demo OTP code.",
       };
     }
 
     const trimmedName = (params.name ?? "").trim();
-    if (params.mode === "signup" && trimmedName.length < 2) {
+    if (
+      params.mode === "signup" &&
+      (trimmedName.length < 2 || trimmedName.length > MAX_NAME_LENGTH)
+    ) {
       return {
         ok: false,
         code: "INVALID_NAME",
-        error: "Nama lengkap minimal 2 karakter.",
+        error: `Full name must be 2–${MAX_NAME_LENGTH} characters.`,
       };
     }
 
     let result: ServiceResult<User> = {
       ok: false,
-      error: "Gagal memproses sesi demo.",
+      error: "Unable to process demo session.",
     };
 
     updateDemoState((prev) => {
@@ -123,8 +131,7 @@ export const authService = {
           result = {
             ok: false,
             code: "USER_NOT_FOUND",
-            error:
-              "Akun demo tidak ditemukan. Silakan daftar demo terlebih dahulu.",
+            error: "Demo account not found. Please sign up first.",
           };
           return prev;
         }
@@ -141,7 +148,8 @@ export const authService = {
         result = {
           ok: false,
           code: "EMAIL_EXISTS",
-          error: "Email ITS demo ini sudah terdaftar. Silakan gunakan Login.",
+          error:
+            "This ITS student email is already registered. Please sign in instead.",
         };
         return prev;
       }
@@ -214,6 +222,5 @@ export const authService = {
 
   resetDemo(): void {
     resetDemoStore();
-    getConvexMutationHandlers()?.resetDemoData();
   },
 };

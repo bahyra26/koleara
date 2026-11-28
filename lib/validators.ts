@@ -34,7 +34,7 @@ export function validateItsEmail(raw: string): {
     return {
       valid: false,
       normalized,
-      error: "Email ITS wajib diisi.",
+      error: "ITS student email is required.",
     };
   }
 
@@ -43,7 +43,7 @@ export function validateItsEmail(raw: string): {
       valid: false,
       normalized,
       error:
-        "Gunakan 10 digit NRP diikuti @student.its.ac.id (contoh: 0000000001@student.its.ac.id).",
+        "Use a 10-digit NRP followed by @student.its.ac.id (e.g. 0000000001@student.its.ac.id).",
     };
   }
 
@@ -60,14 +60,14 @@ export function validateDemoOtp(raw: string): {
     return {
       valid: false,
       normalized,
-      error: "Kode OTP demo wajib diisi.",
+      error: "Demo OTP code is required.",
     };
   }
   if (normalized !== DEMO_OTP_CODE) {
     return {
       valid: false,
       normalized,
-      error: `Kode OTP demo tidak sesuai. Gunakan kode demo ${DEMO_OTP_CODE}.`,
+      error: `Invalid demo OTP code. Use ${DEMO_OTP_CODE}.`,
     };
   }
   return { valid: true, normalized };

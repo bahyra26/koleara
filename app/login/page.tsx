@@ -8,7 +8,7 @@ export default function LoginPage() {
       fallback={
         <div className="mx-auto max-w-md">
           <Card>
-            <p className="text-sm text-neutral-600">Memuat halaman login...</p>
+            <p className="text-sm text-neutral-600">Loading sign-in...</p>
           </Card>
         </div>
       }

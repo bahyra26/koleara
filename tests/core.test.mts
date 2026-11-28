@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import {
   formatIdr,
+  formatWibClockTime,
   parseWibDateTimeLocal,
+  resolveNextSlotTimestampWib,
   toWibDateTimeLocalValue,
 } from "@/lib/formatters";
+import { buildTutorScheduleMatrix } from "@/lib/tutorDisplay";
 import { calculateBriefMatchScore, rankVerifiedTutors } from "@/lib/matching";
 import {
   authService,
@@ -62,6 +65,40 @@ describe("validators & WIB formatters", () => {
     assert.equal(toWibDateTimeLocalValue(valid!), "2027-02-28T19:00");
     assert.equal(parseWibDateTimeLocal("2027-02-31T19:00"), null);
     assert.match(formatIdr(45000), /45\.000/);
+
+    const matrix = buildTutorScheduleMatrix({
+      id: "tutor-nadia",
+      slots: ["Senin 18:30 WIB", "Rabu 19:00 WIB", "Sabtu 10:00 WIB"],
+    });
+    assert.equal(matrix.length, 4);
+    assert.deepEqual(
+      matrix.map((col) => col.day),
+      ["Mon", "Wed", "Sat", "Fri"]
+    );
+    assert.equal(
+      matrix[0]?.cells.find((c) => c.id === "Mon 18:30")?.available,
+      true
+    );
+    assert.equal(
+      matrix[2]?.cells.find((c) => c.id === "Sat 10:00")?.available,
+      true
+    );
+
+    const baseMonMorning = parseWibDateTimeLocal("2027-03-01T09:00")!; // Mon 09:00 WIB
+    const sameDayEvening = resolveNextSlotTimestampWib(
+      "Mon 18:30",
+      baseMonMorning
+    );
+    assert.equal(toWibDateTimeLocalValue(sameDayEvening!), "2027-03-01T18:30");
+    assert.equal(formatWibClockTime(sameDayEvening!), "18:30");
+
+    // Past time on same Monday rolls to next Monday (+7d)
+    const nextWeekMon = resolveNextSlotTimestampWib(
+      "Mon 08:00",
+      baseMonMorning
+    );
+    assert.equal(toWibDateTimeLocalValue(nextWeekMon!), "2027-03-08T08:00");
+    assert.equal(resolveNextSlotTimestampWib("Invalid 99:00"), null);
   });
 });
 
@@ -182,6 +219,16 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
       .map((r) => r.tutor.id)
       .sort();
     assert.deepEqual(mondayIds, ["tutor-nadia", "tutor-salsa"]);
+
+    // English keyword search matches Indonesian stored courses & topics
+    const derivativesIds = tutorService
+      .search({ query: "Derivatives" })
+      .map((r) => r.tutor.id);
+    assert.equal(derivativesIds.includes("tutor-nadia"), true);
+    assert.equal(
+      tutorService.search({ query: "Basic Physics" }).length,
+      3
+    );
   });
 
   it("prevents self-verification on Jadi Tutor submission", () => {
@@ -338,6 +385,70 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
     });
     assert.equal(repeatStart.ok, false);
     if (!repeatStart.ok) assert.equal(repeatStart.code, "ALREADY_PAID");
+
+    // Direct session booking + auto-confirmed demo QRIS lifecycle
+    const selfBook = bookingService.createDirectBooking({
+      actorUserId: "user-tutor-1",
+      tutorId: "tutor-nadia",
+      courseId: "course-kalkulus-1",
+      slotLabel: "Wed 19:00",
+      sessionCount: 1,
+    });
+    assert.equal(selfBook.ok, false);
+    if (!selfBook.ok) assert.equal(selfBook.code, "FORBIDDEN");
+
+    const direct1 = bookingService.createDirectBooking({
+      actorUserId: signup.data.id,
+      tutorId: "tutor-nadia",
+      courseId: "course-kalkulus-1",
+      slotLabel: "Wed 19:00",
+      sessionCount: 4,
+    });
+    assert.equal(direct1.ok, true);
+    if (!direct1.ok) return;
+    assert.equal(direct1.data.price, 180000);
+    assert.equal(direct1.data.status, "accepted");
+
+    // Re-clicking Pay Now for same unpaid slot reuses existing booking idempotently
+    const direct1Retry = bookingService.createDirectBooking({
+      actorUserId: signup.data.id,
+      tutorId: "tutor-nadia",
+      courseId: "course-kalkulus-1",
+      slotLabel: "Wed 19:00",
+      sessionCount: 4,
+    });
+    assert.equal(direct1Retry.ok, true);
+    if (direct1Retry.ok) assert.equal(direct1Retry.data.id, direct1.data.id);
+
+    // Another learner cannot double-book same slot
+    const conflictDirect = bookingService.createDirectBooking({
+      actorUserId: "user-learner-demo",
+      tutorId: "tutor-nadia",
+      courseId: "course-kalkulus-1",
+      slotLabel: "Wed 19:00",
+      sessionCount: 1,
+    });
+    assert.equal(conflictDirect.ok, false);
+    if (!conflictDirect.ok) {
+      assert.equal(conflictDirect.code, "SCHEDULE_CONFLICT");
+    }
+
+    // Wrong user cannot complete QRIS payment
+    const intruderPay = paymentService.completeDemoQris({
+      bookingId: direct1.data.id,
+      actorUserId: "user-learner-demo",
+    });
+    assert.equal(intruderPay.ok, false);
+    if (!intruderPay.ok) assert.equal(intruderPay.code, "FORBIDDEN");
+
+    // Owner learner completes QRIS payment
+    const autoPaid = paymentService.completeDemoQris({
+      bookingId: direct1.data.id,
+      actorUserId: signup.data.id,
+    });
+    assert.equal(autoPaid.ok, true);
+    if (autoPaid.ok) assert.equal(autoPaid.data.status, "paid");
+    assert.equal(bookingService.getById(direct1.data.id)?.status, "paid");
   });
 
   it("reproduces Bab 4.7 explainable rule-based matching benchmark scores (88.0, 81.1, 70.4)", () => {
@@ -506,6 +617,15 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
     });
     assert.equal(longSlotApp.ok, false);
 
+    // Reject > 100 char signup name locally matching Convex MAX_NAME_LENGTH
+    const overlongSignup = authService.verifyDemoOtp({
+      email: "5025231888@student.its.ac.id",
+      otp: "123456",
+      mode: "signup",
+      name: "N".repeat(110),
+    });
+    assert.equal(overlongSignup.ok, false);
+
     // Reject markRead from non-participant or empty readerId
     assert.equal(chatService.markRead("conv-demo-seed-1", "").ok, false);
     assert.equal(
@@ -629,6 +749,12 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
       // 6. KOLEARA_ADMIN_KEY enforcement on admin & reset endpoints
       process.env.KOLEARA_ADMIN_KEY = "rahasia-admin-koleara";
       try {
+        const deniedUsers = await GET(
+          new Request("http://localhost:3000/api/users"),
+          { params: Promise.resolve({ slug: ["users"] }) }
+        );
+        assert.equal(deniedUsers.status, 401);
+
         const deniedMetrics = await GET(
           new Request("http://localhost:3000/api/admin/metrics"),
           { params: Promise.resolve({ slug: ["admin", "metrics"] }) }

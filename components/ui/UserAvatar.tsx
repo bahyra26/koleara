@@ -7,8 +7,8 @@ type UserAvatarProps = {
 const SIZE_CLASSES: Record<NonNullable<UserAvatarProps["size"]>, string> = {
   sm: "h-10 w-10 border-2",
   md: "h-[68px] w-[68px] border-[3px]",
-  lg: "h-24 w-24 border-4",
-  xl: "h-36 w-36 border-[5px]",
+  lg: "h-28 w-28 border-4",
+  xl: "h-32 w-32 sm:h-[152px] sm:w-[152px] border-[4px]",
 };
 
 const TONE_STYLES: Record<

@@ -192,6 +192,82 @@ export const paymentService = {
     return result;
   },
 
+  completeDemoQris(params: {
+    bookingId: string;
+    actorUserId: string;
+  }): ServiceResult<Payment> {
+    let result: ServiceResult<Payment> = {
+      ok: false,
+      code: "BOOKING_NOT_FOUND",
+      error: "Booking not found.",
+    };
+    let didTransition = false;
+
+    updateDemoState((prev) => {
+      const booking = prev.bookings.find((b) => b.id === params.bookingId);
+      if (!booking) return prev;
+
+      if (booking.learnerId !== params.actorUserId) {
+        result = {
+          ok: false,
+          code: "FORBIDDEN",
+          error: "Only the learner who created this booking can complete payment.",
+        };
+        return prev;
+      }
+
+      const existing = prev.payments.find((p) => p.bookingId === booking.id);
+      if (booking.status === "paid" && existing?.status === "paid") {
+        result = { ok: true, data: existing };
+        return prev;
+      }
+
+      if (booking.status !== "accepted") {
+        result = {
+          ok: false,
+          code: "NOT_ACCEPTED",
+          error: "This booking cannot be paid in its current state.",
+        };
+        return prev;
+      }
+
+      const now = Date.now();
+      const paidPayment: Payment = {
+        id: existing?.id ?? `pay-${booking.id}`,
+        bookingId: booking.id,
+        amount: booking.price,
+        status: "paid",
+        proofName: existing?.proofName ?? "qris-auto-demo.png",
+        submittedAt: existing?.submittedAt ?? now,
+        verifiedAt: now,
+        rejectionReason: undefined,
+      };
+
+      didTransition = true;
+      result = { ok: true, data: paidPayment };
+      return {
+        ...prev,
+        payments: existing
+          ? prev.payments.map((p) =>
+              p.bookingId === booking.id ? paidPayment : p
+            )
+          : [...prev.payments, paidPayment],
+        bookings: prev.bookings.map((b) =>
+          b.id === booking.id ? { ...b, status: "paid" } : b
+        ),
+      };
+    });
+
+    if (didTransition) {
+      getConvexMutationHandlers()?.completeDemoQris({
+        bookingId: params.bookingId,
+        actorUserId: params.actorUserId,
+      });
+    }
+
+    return result;
+  },
+
   simulateVerification(params: {
     bookingId: string;
     decision: "approve" | "reject";

@@ -14,6 +14,13 @@
  * - Tie-break: bayesianRating lebih tinggi -> hourlyRate lebih rendah -> tutorId ascending
  */
 
+import {
+  formatCourseOptionLabel,
+  formatCourseTabLabel,
+  formatDepartmentLabel,
+  formatTopicLabel,
+} from "./tutorDisplay";
+
 export type MatchingCandidateInput = {
   tutorId: string;
   mastersSubtopic: boolean;
@@ -287,7 +294,14 @@ export function rankVerifiedTutors<
       .filter((c): c is TCourse => Boolean(c));
 
     if (courseId && !tutor.courseIds.includes(courseId)) continue;
-    if (topic && !tutor.topics.some((t) => t.toLowerCase().includes(topic))) {
+    if (
+      topic &&
+      !tutor.topics.some(
+        (t) =>
+          t.toLowerCase().includes(topic) ||
+          formatTopicLabel(t).toLowerCase().includes(topic)
+      )
+    ) {
       continue;
     }
     if (maxBudget !== null && tutor.hourlyRate > maxBudget) continue;
@@ -303,9 +317,14 @@ export function rankVerifiedTutors<
       const haystack = [
         tutor.name,
         tutor.department,
+        formatDepartmentLabel(tutor.department),
         tutor.bio,
-        ...tutorCourses.map((c) => c.name),
-        ...tutor.topics,
+        ...tutorCourses.flatMap((c) => [
+          c.name,
+          formatCourseOptionLabel(c),
+          formatCourseTabLabel(c),
+        ]),
+        ...tutor.topics.flatMap((t) => [t, formatTopicLabel(t)]),
       ]
         .join(" ")
         .toLowerCase();
@@ -322,9 +341,17 @@ export function rankVerifiedTutors<
     }
 
     const matchedTopicLabel = topic
-      ? tutor.topics.find((t) => t.toLowerCase().includes(topic))
+      ? tutor.topics.find(
+          (t) =>
+            t.toLowerCase().includes(topic) ||
+            formatTopicLabel(t).toLowerCase().includes(topic)
+        )
       : queryText
-        ? tutor.topics.find((t) => t.toLowerCase().includes(queryText))
+        ? tutor.topics.find(
+            (t) =>
+              t.toLowerCase().includes(queryText) ||
+              formatTopicLabel(t).toLowerCase().includes(queryText)
+          )
         : undefined;
 
     const matchingSlotsCount = scheduleQuery

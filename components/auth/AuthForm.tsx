@@ -11,6 +11,7 @@ import { Notice } from "@/components/ui/Notice";
 import { useAuth } from "@/features/auth/useAuth";
 import {
   DEMO_OTP_CODE,
+  MAX_NAME_LENGTH,
   sanitizeReturnPath,
   validateItsEmail,
 } from "@/lib/validators";
@@ -56,7 +57,10 @@ function AuthFormContent({
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
   const emailValidation = validateItsEmail(email);
-  const nameValid = mode === "login" || name.trim().length >= 2;
+  const trimmedNameLen = name.trim().length;
+  const nameValid =
+    mode === "login" ||
+    (trimmedNameLen >= 2 && trimmedNameLen <= MAX_NAME_LENGTH);
   const canRequestOtp = emailValidation.valid && nameValid;
 
   const queryWithNext = rawNext
@@ -113,24 +117,23 @@ function AuthFormContent({
 
   if (user) {
     return (
-      <div className="mx-auto max-w-md space-y-4">
+      <div className="mx-auto max-w-md space-y-4 py-4">
         <Card className="space-y-4">
           <div className="space-y-1">
-            <Badge variant="outline">Sesi Demo Aktif</Badge>
+            <Badge variant="outline">Active Demo Session</Badge>
             <h1 className="text-xl font-semibold text-neutral-900">
-              Anda sudah masuk sebagai {user.name}
+              Signed in as {user.name}
             </h1>
             <p className="text-sm text-neutral-600">
-              {user.email} (
-              {user.role === "tutor" ? "Tutor Demo" : "Mahasiswa Demo"})
+              {user.email} ({user.role === "tutor" ? "Demo Tutor" : "Demo Student"})
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => router.push(returnPath)}>
-              Lanjutkan ({returnPath})
+              Continue ({returnPath})
             </Button>
             <Button variant="outline" onClick={() => logout()}>
-              Keluar
+              Log Out
             </Button>
             <Button
               variant="ghost"
@@ -139,7 +142,7 @@ function AuthFormContent({
                 router.push("/");
               }}
             >
-              Reset Demo
+              Reset Local Demo
             </Button>
           </div>
         </Card>
@@ -148,25 +151,25 @@ function AuthFormContent({
   }
 
   return (
-    <div className="mx-auto max-w-md space-y-4">
+    <div className="mx-auto max-w-md space-y-4 py-4">
       <Card className="space-y-5">
         <div className="space-y-1">
-          <Badge variant="outline">Autentikasi Simulasi — Mode Demo</Badge>
+          <Badge variant="outline">Demo Authentication</Badge>
           <h1 className="text-xl font-semibold text-neutral-900">
             {mode === "login"
-              ? "Masuk ke KOLEARA (Demo)"
-              : "Daftar Akun Mahasiswa ITS (Demo)"}
+              ? "Sign In to KOLEARA"
+              : "Create ITS Student Account"}
           </h1>
           <p className="text-sm text-neutral-600">
             {mode === "login"
-              ? "Masukkan email ITS demo yang sudah terdaftar untuk menerima kode OTP simulasi."
-              : "Buat profil demo lokal dengan 10 digit NRP dan domain @student.its.ac.id."}
+              ? "Enter a registered ITS student email to receive a simulated demo OTP."
+              : "Create a student profile with your 10-digit NRP and @student.its.ac.id email."}
           </p>
         </div>
 
         {rawNext ? (
           <Notice>
-            Setelah masuk, Anda akan diarahkan kembali ke{" "}
+            After signing in, you will return to{" "}
             <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">
               {returnPath}
             </code>
@@ -179,18 +182,18 @@ function AuthFormContent({
             {mode === "signup" ? (
               <Input
                 id={`auth-${mode}-name`}
-                label="Nama Lengkap (Sintetik / Demo)"
+                label="Full Name"
                 type="text"
                 autoComplete="name"
-                placeholder="Contoh: Ardi Pratama"
+                placeholder="e.g. Ardi Pratama"
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
                   setFormError(null);
                 }}
                 error={
-                  name.length > 0 && name.trim().length < 2
-                    ? "Nama lengkap minimal 2 karakter."
+                  name.length > 0 && !nameValid
+                    ? `Full name must be 2–${MAX_NAME_LENGTH} characters.`
                     : undefined
                 }
                 required
@@ -199,7 +202,7 @@ function AuthFormContent({
 
             <Input
               id={`auth-${mode}-email`}
-              label="Email Mahasiswa ITS"
+              label="ITS Student Email"
               type="email"
               inputMode="email"
               autoComplete="email"
@@ -212,7 +215,7 @@ function AuthFormContent({
                 setErrorCode(null);
               }}
               onBlur={() => setEmailTouched(true)}
-              helperText="Format wajib: 10 digit NRP + @student.its.ac.id. Spasi dan huruf kapital dinormalisasi otomatis."
+              helperText="Required format: 10-digit NRP + @student.its.ac.id. Spaces and uppercase letters are normalized automatically."
               error={
                 emailTouched && !emailValidation.valid
                   ? emailValidation.error
@@ -230,7 +233,7 @@ function AuthFormContent({
                       href={signupWithEmailHref}
                       className="font-semibold underline underline-offset-4"
                     >
-                      Daftar akun demo dengan email ini
+                      Sign up with this email instead
                     </Link>
                   </p>
                 ) : null}
@@ -242,7 +245,7 @@ function AuthFormContent({
                       )}${rawNext ? `&next=${encodeURIComponent(returnPath)}` : ""}`}
                       className="font-semibold underline underline-offset-4"
                     >
-                      Masuk di halaman Login
+                      Go to Login page
                     </Link>
                   </p>
                 ) : null}
@@ -250,15 +253,15 @@ function AuthFormContent({
             ) : null}
 
             <Button type="submit" fullWidth disabled={!canRequestOtp}>
-              Lanjut ke OTP Demo
+              Continue to Demo OTP
             </Button>
           </form>
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-4" noValidate>
-            <Notice title="Kode OTP Simulasi (Hanya Demo)" tone="emphasis">
+            <Notice title="Demo OTP Code" tone="emphasis">
               <p>
-                Tidak ada email yang dikirim. Masukkan kode OTP demo berikut
-                untuk melanjutkan sebagai{" "}
+                No real email is sent. Enter the 6-digit demo OTP code below to
+                continue as{" "}
                 <strong className="break-all">{normalizedEmail}</strong>:
               </p>
               <p className="mt-2 font-mono text-lg font-bold tracking-widest text-neutral-900">
@@ -268,7 +271,7 @@ function AuthFormContent({
 
             <Input
               id={`auth-${mode}-otp`}
-              label="Masukkan Kode OTP Demo (6 digit)"
+              label="Enter 6-Digit Demo OTP"
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
@@ -294,7 +297,7 @@ function AuthFormContent({
                 fullWidth
                 disabled={otp.trim().length === 0}
               >
-                Verifikasi &amp; Masuk (Demo)
+                Verify &amp; Sign In
               </Button>
               <Button
                 type="button"
@@ -306,7 +309,7 @@ function AuthFormContent({
                   setFormError(null);
                 }}
               >
-                Ubah Email
+                Change Email
               </Button>
             </div>
           </form>
@@ -315,22 +318,22 @@ function AuthFormContent({
         <div className="border-t border-neutral-200 pt-4 text-sm text-neutral-600">
           {mode === "login" ? (
             <p>
-              Belum punya profil demo?{" "}
+              Don&apos;t have a demo account yet?{" "}
               <Link
                 href={`/signup${queryWithNext}`}
                 className="font-medium text-neutral-900 underline underline-offset-4"
               >
-                Daftar Demo
+                Sign Up
               </Link>
             </p>
           ) : (
             <p>
-              Sudah punya akun demo?{" "}
+              Already have a demo account?{" "}
               <Link
                 href={`/login${queryWithNext}`}
                 className="font-medium text-neutral-900 underline underline-offset-4"
               >
-                Masuk (Login)
+                Login
               </Link>
             </p>
           )}
@@ -340,11 +343,11 @@ function AuthFormContent({
       {mode === "login" && step === "credentials" ? (
         <Card className="space-y-3">
           <h2 className="text-sm font-semibold text-neutral-900">
-            Pilih Profil Demo Bawaan (Isi Cepat)
+            Quick-Fill Demo Accounts
           </h2>
           <p className="text-xs text-neutral-600">
-            Klik salah satu profil sintetik di bawah untuk mengisi email secara
-            otomatis (tetap melewati verifikasi OTP demo {DEMO_OTP_CODE}).
+            Select any seeded account below to fill its email automatically
+            (uses demo OTP {DEMO_OTP_CODE}).
           </p>
           <div className="space-y-2">
             {users.slice(0, 4).map((demoUser) => (
@@ -357,14 +360,14 @@ function AuthFormContent({
                   setFormError(null);
                   setErrorCode(null);
                 }}
-                className="flex w-full items-center justify-between gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-left text-xs hover:bg-neutral-100 cursor-pointer"
+                className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-left text-xs hover:bg-neutral-100"
               >
                 <div>
                   <p className="font-medium text-neutral-900">{demoUser.name}</p>
                   <p className="font-mono text-neutral-600">{demoUser.email}</p>
                 </div>
                 <Badge variant="muted">
-                  {demoUser.role === "tutor" ? "Tutor" : "Mahasiswa"}
+                  {demoUser.role === "tutor" ? "Tutor" : "Student"}
                 </Badge>
               </button>
             ))}
@@ -373,10 +376,9 @@ function AuthFormContent({
       ) : null}
 
       <Notice>
-        <strong>Batasan Prototipe:</strong> Validasi email dan OTP demo ini
-        hanya simulasi antarmuka. Sistem tidak menyimpan password, tidak
-        mengirim email, dan tidak membuktikan status mahasiswa ITS atau
-        kepemilikan kotak masuk.
+        <strong>Prototype Note:</strong> Email and OTP verification are
+        simulated for demo purposes. No passwords are stored and no emails are
+        sent.
       </Notice>
     </div>
   );

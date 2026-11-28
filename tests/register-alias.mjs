@@ -17,6 +17,17 @@ registerHooks({
         : path.join(base, "index.ts");
       return nextResolve(pathToFileURL(resolved).href, context);
     }
+    if (
+      (specifier.startsWith("./") || specifier.startsWith("../")) &&
+      !path.extname(specifier) &&
+      context.parentURL?.startsWith("file:")
+    ) {
+      const parentDir = path.dirname(fileURLToPath(context.parentURL));
+      const base = path.resolve(parentDir, specifier);
+      if (base.startsWith(rootDir) && fs.existsSync(`${base}.ts`)) {
+        return nextResolve(pathToFileURL(`${base}.ts`).href, context);
+      }
+    }
     return nextResolve(specifier, context);
   },
 });

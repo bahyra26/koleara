@@ -230,7 +230,7 @@ export function createSeedState(): DemoState {
         senderId: "user-learner-demo",
         type: "text",
         content:
-          "Halo Kak Nadia, apakah bisa bantu bahas soal Integral Tentu untuk persiapan kuis minggu depan?",
+          "Hi Nadia, could we practice Definite Integrals for next week's quiz?",
         createdAt: SEED_BASE_TIME,
         readAt: SEED_BASE_TIME + 2 * 60 * 1000,
       },
@@ -240,7 +240,7 @@ export function createSeedState(): DemoState {
         senderId: "user-tutor-1",
         type: "text",
         content:
-          "Halo Bima! Bisa banget. Kirim saja kisaran jadwal yang kosong nanti aku buatkan tawaran sesinya ya (pesan contoh demo).",
+          "Hi Bima! Of course. Let me know which time slot works best for you.",
         createdAt: SEED_BASE_TIME + 5 * 60 * 1000,
       },
     ],

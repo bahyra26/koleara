@@ -268,6 +268,298 @@ export const createOffer = mutation({
   },
 });
 
+// shortcut: demo trusts caller-supplied actorUserId until Convex Auth is wired
+export const createDirectBooking = mutation({
+  args: {
+    bookingAppId: v.optional(v.string()),
+    conversationAppId: v.optional(v.string()),
+    actorUserId: v.string(),
+    tutorId: v.string(),
+    courseId: v.string(),
+    topic: v.string(),
+    startAt: v.number(),
+    sessionCount: v.union(v.literal(1), v.literal(4)),
+    brief: v.optional(v.string()),
+  },
+  returns: serviceResultValidator(bookingObjectValidator),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const trimmedCourseId = args.courseId.trim();
+    const trimmedTopic = args.topic.trim();
+    const trimmedBrief = args.brief?.trim() || undefined;
+
+    if (!trimmedCourseId) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Select a course first.",
+      };
+    }
+    if (!trimmedTopic || trimmedTopic.length > MAX_TOPIC_LENGTH) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: `Topic must be 1–${MAX_TOPIC_LENGTH} characters.`,
+      };
+    }
+    if (trimmedBrief && trimmedBrief.length > MAX_BRIEF_LENGTH) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: `Notes must be at most ${MAX_BRIEF_LENGTH} characters.`,
+      };
+    }
+    if (!Number.isFinite(args.startAt) || args.startAt <= now) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Session time must be in the future (WIB).",
+      };
+    }
+    if (args.bookingAppId !== undefined && !isValidAppId(args.bookingAppId)) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Invalid booking ID.",
+      };
+    }
+    if (
+      args.conversationAppId !== undefined &&
+      !isValidAppId(args.conversationAppId)
+    ) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Invalid conversation ID.",
+      };
+    }
+
+    const [learner, tutor, course] = await Promise.all([
+      ctx.db
+        .query("users")
+        .withIndex("by_appId", (q) => q.eq("appId", args.actorUserId))
+        .first(),
+      ctx.db
+        .query("tutors")
+        .withIndex("by_appId", (q) => q.eq("appId", args.tutorId))
+        .first(),
+      ctx.db
+        .query("courses")
+        .withIndex("by_appId", (q) => q.eq("appId", trimmedCourseId))
+        .first(),
+    ]);
+
+    if (!learner) {
+      return {
+        ok: false as const,
+        code: "USER_NOT_FOUND",
+        error: "Sign in to continue booking.",
+      };
+    }
+    if (!tutor || !tutor.verified) {
+      return {
+        ok: false as const,
+        code: "TUTOR_NOT_FOUND",
+        error: "Verified tutor not found.",
+      };
+    }
+    if (tutor.userId === learner.appId) {
+      return {
+        ok: false as const,
+        code: "FORBIDDEN",
+        error: "Switch to a learner account to book this tutor.",
+      };
+    }
+    if (!course || !tutor.courseIds.includes(course.appId)) {
+      return {
+        ok: false as const,
+        code: "INVALID_COURSE_FOR_TUTOR",
+        error: "Selected course is not available for this tutor.",
+      };
+    }
+
+    const price = tutor.hourlyRate * args.sessionCount;
+    if (
+      !Number.isSafeInteger(price) ||
+      price <= 0 ||
+      price > MAX_HOURLY_RATE_IDR
+    ) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Session total exceeds allowed demo limit.",
+      };
+    }
+
+    const bookingAppId =
+      args.bookingAppId ??
+      `bk-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const existingBooking = await ctx.db
+      .query("bookings")
+      .withIndex("by_appId", (q) => q.eq("appId", bookingAppId))
+      .first();
+    if (existingBooking) {
+      if (
+        existingBooking.learnerId !== learner.appId ||
+        existingBooking.tutorId !== tutor.appId
+      ) {
+        return {
+          ok: false as const,
+          code: "CONFLICT",
+          error: "Booking ID already belongs to another session.",
+        };
+      }
+      return {
+        ok: true as const,
+        data: {
+          id: existingBooking.appId,
+          conversationId: existingBooking.conversationId,
+          learnerId: existingBooking.learnerId,
+          tutorId: existingBooking.tutorId,
+          courseId: existingBooking.courseId,
+          topic: existingBooking.topic,
+          startAt: existingBooking.startAt,
+          durationMinutes: existingBooking.durationMinutes,
+          price: existingBooking.price,
+          meetingMode: existingBooking.meetingMode,
+          brief: existingBooking.brief,
+          status: existingBooking.status,
+          createdAt: existingBooking.createdAt,
+        },
+      };
+    }
+
+    const newEnd = args.startAt + 60 * 60_000;
+    const windowStart = args.startAt - 60 * 60_000;
+    const tutorBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_tutorId_and_startAt", (q) =>
+        q
+          .eq("tutorId", tutor.appId)
+          .gt("startAt", windowStart)
+          .lt("startAt", newEnd)
+      )
+      .take(50);
+
+    const reusableUnpaid = tutorBookings.find(
+      (other) =>
+        other.learnerId === learner.appId &&
+        other.courseId === course.appId &&
+        other.startAt === args.startAt &&
+        other.price === price &&
+        other.status === "accepted"
+    );
+    if (reusableUnpaid) {
+      return {
+        ok: true as const,
+        data: {
+          id: reusableUnpaid.appId,
+          conversationId: reusableUnpaid.conversationId,
+          learnerId: reusableUnpaid.learnerId,
+          tutorId: reusableUnpaid.tutorId,
+          courseId: reusableUnpaid.courseId,
+          topic: reusableUnpaid.topic,
+          startAt: reusableUnpaid.startAt,
+          durationMinutes: reusableUnpaid.durationMinutes,
+          price: reusableUnpaid.price,
+          meetingMode: reusableUnpaid.meetingMode,
+          brief: reusableUnpaid.brief,
+          status: reusableUnpaid.status,
+          createdAt: reusableUnpaid.createdAt,
+        },
+      };
+    }
+
+    const conflicting = tutorBookings.find((other) => {
+      if (other.status !== "accepted" && other.status !== "paid") return false;
+      const otherEnd = other.startAt + other.durationMinutes * 60_000;
+      return args.startAt < otherEnd && other.startAt < newEnd;
+    });
+    if (conflicting) {
+      return {
+        ok: false as const,
+        code: "SCHEDULE_CONFLICT",
+        error: "This time slot is already booked. Pick another available slot.",
+      };
+    }
+
+    const conversation = await ctx.db
+      .query("conversations")
+      .withIndex("by_learnerId_and_tutorId", (q) =>
+        q.eq("learnerId", learner.appId).eq("tutorId", tutor.appId)
+      )
+      .first();
+
+    const conversationAppId =
+      conversation?.appId ??
+      args.conversationAppId ??
+      `conv-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+    if (!conversation) {
+      await ctx.db.insert("conversations", {
+        appId: conversationAppId,
+        learnerId: learner.appId,
+        tutorId: tutor.appId,
+        lastMessageAt: now,
+      });
+    }
+
+    const meetingMode =
+      tutor.location === "offline"
+        ? ("offline_its" as const)
+        : ("online" as const);
+
+    await ctx.db.insert("bookings", {
+      appId: bookingAppId,
+      conversationId: conversationAppId,
+      learnerId: learner.appId,
+      tutorId: tutor.appId,
+      courseId: course.appId,
+      topic: trimmedTopic,
+      startAt: args.startAt,
+      durationMinutes: 60,
+      price,
+      meetingMode,
+      brief: trimmedBrief,
+      status: "accepted",
+      createdAt: now,
+    });
+
+    const existingPayment = await ctx.db
+      .query("payments")
+      .withIndex("by_bookingId", (q) => q.eq("bookingId", bookingAppId))
+      .first();
+    if (!existingPayment) {
+      await ctx.db.insert("payments", {
+        appId: `pay-${bookingAppId}`,
+        bookingId: bookingAppId,
+        amount: price,
+        status: "unpaid",
+      });
+    }
+
+    return {
+      ok: true as const,
+      data: {
+        id: bookingAppId,
+        conversationId: conversationAppId,
+        learnerId: learner.appId,
+        tutorId: tutor.appId,
+        courseId: course.appId,
+        topic: trimmedTopic,
+        startAt: args.startAt,
+        durationMinutes: 60 as const,
+        price,
+        meetingMode,
+        brief: trimmedBrief,
+        status: "accepted" as const,
+        createdAt: now,
+      },
+    };
+  },
+});
+
 export const acceptOffer = mutation({
   args: {
     bookingId: v.string(),

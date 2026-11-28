@@ -299,6 +299,9 @@ export async function GET(
 
   // 2. GET /api/users
   if (path === "users") {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
     const roleFilter = url.searchParams.get("role")?.trim();
     if (roleFilter && roleFilter !== "learner" && roleFilter !== "tutor") {
       return jsonError(
@@ -307,7 +310,9 @@ export async function GET(
         "INVALID_ROLE"
       );
     }
-    const convexRes = await callConvex("query", "auth:listUsers", {});
+    const convexRes = await callConvex("query", "auth:listUsers", {
+      ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
+    });
     const users = (
       convexRes.ok
         ? (convexRes.value as Array<{ role: string }>)

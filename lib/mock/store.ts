@@ -30,7 +30,6 @@ export type ConvexMutationHandlers = {
     mode: "login" | "signup";
     name?: string;
   }) => void;
-  resetDemoData: () => void;
   submitApplication: (args: {
     appId: string;
     userId: string;
@@ -65,6 +64,17 @@ export type ConvexMutationHandlers = {
     meetingMode?: "online" | "offline_its";
     brief?: string;
   }) => void;
+  createDirectBooking: (args: {
+    bookingAppId: string;
+    conversationAppId: string;
+    actorUserId: string;
+    tutorId: string;
+    courseId: string;
+    topic: string;
+    startAt: number;
+    sessionCount: 1 | 4;
+    brief?: string;
+  }) => void;
   acceptOffer: (args: { bookingId: string; actorUserId: string }) => void;
   declineOffer: (args: { bookingId: string; actorUserId: string }) => void;
   startPayment: (args: { bookingId: string; actorUserId: string }) => void;
@@ -72,6 +82,10 @@ export type ConvexMutationHandlers = {
     bookingId: string;
     actorUserId: string;
     proofName?: string;
+  }) => void;
+  completeDemoQris: (args: {
+    bookingId: string;
+    actorUserId: string;
   }) => void;
   simulateVerification: (args: {
     bookingId: string;

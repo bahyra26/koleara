@@ -118,6 +118,8 @@ export function serviceResultValidator<T extends ReturnType<typeof v.object>>(
 }
 
 export {
+  DEMO_OTP_CODE,
+  ITS_STUDENT_EMAIL_REGEX,
   MAX_BIO_LENGTH,
   MAX_BRIEF_LENGTH,
   MAX_HOURLY_RATE_IDR,
@@ -125,6 +127,7 @@ export {
   MAX_NAME_LENGTH,
   MAX_SLOT_LENGTH,
   MAX_TOPIC_LENGTH,
+  normalizeItsEmail,
   sanitizeProofFileName,
 } from "../lib/validators";
 

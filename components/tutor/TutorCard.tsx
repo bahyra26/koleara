@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import type { TutorSearchResult } from "@/lib/contracts";
+import { formatIdr } from "@/lib/formatters";
 import {
   formatCoursePillLabel,
   formatDepartmentLabel,
-  formatIdrSpaced,
   isPhysicsCourse,
   resolvePrimaryCourse,
 } from "@/lib/tutorDisplay";
@@ -68,7 +68,7 @@ export function TutorCard({ result, activeCourseId }: TutorCardProps) {
       <div className="mt-5 px-2 pb-1">
         <div className="flex items-baseline justify-between gap-2">
           <p className="text-[18px] font-bold tracking-tight text-[#1E272C]">
-            {formatIdrSpaced(tutor.hourlyRate)}{" "}
+            {formatIdr(tutor.hourlyRate)}{" "}
             <span className="text-[12px] font-normal text-[#9AA4A9]">
               / hour
             </span>

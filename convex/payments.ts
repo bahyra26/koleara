@@ -317,6 +317,103 @@ export const submitDemoProof = mutation({
   },
 });
 
+// shortcut: simulated QRIS gateway auto-confirms for booking learner in demo; replace with signed payment webhook in production
+export const completeDemoQris = mutation({
+  args: {
+    bookingId: v.string(),
+    actorUserId: v.string(),
+  },
+  returns: serviceResultValidator(paymentObjectValidator),
+  handler: async (ctx, args) => {
+    const booking = await ctx.db
+      .query("bookings")
+      .withIndex("by_appId", (q) => q.eq("appId", args.bookingId))
+      .first();
+    if (!booking) {
+      return {
+        ok: false as const,
+        code: "BOOKING_NOT_FOUND",
+        error: "Booking not found.",
+      };
+    }
+    if (booking.learnerId !== args.actorUserId) {
+      return {
+        ok: false as const,
+        code: "FORBIDDEN",
+        error: "Only the learner who created this booking can complete payment.",
+      };
+    }
+
+    const existing = await ctx.db
+      .query("payments")
+      .withIndex("by_bookingId", (q) => q.eq("bookingId", booking.appId))
+      .first();
+
+    if (booking.status === "paid" && existing?.status === "paid") {
+      return {
+        ok: true as const,
+        data: {
+          id: existing.appId,
+          bookingId: existing.bookingId,
+          amount: existing.amount,
+          status: "paid" as const,
+          proofName: existing.proofName,
+          submittedAt: existing.submittedAt,
+          verifiedAt: existing.verifiedAt,
+        },
+      };
+    }
+
+    if (booking.status !== "accepted") {
+      return {
+        ok: false as const,
+        code: "NOT_ACCEPTED",
+        error: "This booking cannot be paid in its current state.",
+      };
+    }
+
+    const now = Date.now();
+    const appId = existing?.appId ?? `pay-${booking.appId}`;
+    const proofName = existing?.proofName ?? "qris-auto-demo.png";
+    const submittedAt = existing?.submittedAt ?? now;
+
+    if (existing) {
+      await ctx.db.patch("payments", existing._id, {
+        status: "paid",
+        proofName,
+        submittedAt,
+        verifiedAt: now,
+        rejectionReason: undefined,
+      });
+    } else {
+      await ctx.db.insert("payments", {
+        appId,
+        bookingId: booking.appId,
+        amount: booking.price,
+        status: "paid",
+        proofName,
+        submittedAt,
+        verifiedAt: now,
+      });
+    }
+
+    await ctx.db.patch("bookings", booking._id, { status: "paid" });
+
+    return {
+      ok: true as const,
+      data: {
+        id: appId,
+        bookingId: booking.appId,
+        amount: booking.price,
+        status: "paid" as const,
+        proofName,
+        submittedAt,
+        verifiedAt: now,
+      },
+    };
+  },
+});
+
 export const simulateVerification = mutation({
   args: {
     bookingId: v.string(),

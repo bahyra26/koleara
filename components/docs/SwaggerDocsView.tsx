@@ -24,7 +24,13 @@ function methodBadgeStyle(method: HttpMethod): string {
   }
 }
 
-function EndpointCard({ endpoint }: { endpoint: RestEndpointDoc }) {
+function EndpointCard({
+  endpoint,
+  adminKey,
+}: {
+  endpoint: RestEndpointDoc;
+  adminKey: string;
+}) {
   const [open, setOpen] = useState(false);
   const [tryOut, setTryOut] = useState(false);
   const [pathValues, setPathValues] = useState<Record<string, string>>(() =>
@@ -88,9 +94,13 @@ function EndpointCard({ endpoint }: { endpoint: RestEndpointDoc }) {
     setLoading(true);
     const start = performance.now();
     try {
+      const headers: Record<string, string> = {};
+      if (hasBody) headers["Content-Type"] = "application/json";
+      if (adminKey.trim()) headers["x-admin-key"] = adminKey.trim();
+
       const res = await fetch(targetUrl, {
         method: endpoint.method,
-        headers: hasBody ? { "Content-Type": "application/json" } : undefined,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         body: requestBody,
       });
       const elapsed = Math.round(performance.now() - start);
@@ -392,6 +402,7 @@ function EndpointCard({ endpoint }: { endpoint: RestEndpointDoc }) {
 export function SwaggerDocsView() {
   const [selectedTag, setSelectedTag] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [adminKey, setAdminKey] = useState("");
 
   const tags = useMemo(() => {
     const set = new Set<string>();
@@ -491,13 +502,23 @@ export function SwaggerDocsView() {
             ))}
           </div>
 
-          <input
-            type="search"
-            placeholder="Cari endpoint (mis. GET /api/tutors)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs text-neutral-900 sm:w-72"
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="password"
+              aria-label="Admin key header"
+              placeholder="x-admin-key (opsional)..."
+              value={adminKey}
+              onChange={(e) => setAdminKey(e.target.value)}
+              className="w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 font-mono text-xs text-neutral-900 sm:w-48"
+            />
+            <input
+              type="search"
+              placeholder="Cari endpoint (mis. GET /api/tutors)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs text-neutral-900 sm:w-64"
+            />
+          </div>
         </div>
       </Card>
 
@@ -511,7 +532,7 @@ export function SwaggerDocsView() {
           </div>
           <div className="space-y-2.5">
             {endpoints.map((ep) => (
-              <EndpointCard key={ep.id} endpoint={ep} />
+              <EndpointCard key={ep.id} endpoint={ep} adminKey={adminKey} />
             ))}
           </div>
         </section>

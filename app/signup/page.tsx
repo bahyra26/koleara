@@ -8,7 +8,7 @@ export default function SignupPage() {
       fallback={
         <div className="mx-auto max-w-md">
           <Card>
-            <p className="text-sm text-neutral-600">Memuat halaman daftar...</p>
+            <p className="text-sm text-neutral-600">Loading sign-up...</p>
           </Card>
         </div>
       }

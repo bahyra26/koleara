@@ -44,17 +44,18 @@ export function useDemoHydrated(): boolean {
 function ConvexRealtimeBridge() {
   const remoteState = useQuery(api.state.getAppState, {});
   const ensureSeeded = useMutation(api.seed.ensureSeeded);
-  const resetDemoData = useMutation(api.seed.resetDemoData);
   const verifyDemoOtp = useMutation(api.auth.verifyDemoOtp);
   const submitApplication = useMutation(api.tutors.submitApplication);
   const getOrCreateConversation = useMutation(api.chat.getOrCreateConversation);
   const sendMessage = useMutation(api.chat.sendMessage);
   const markRead = useMutation(api.chat.markRead);
   const createOffer = useMutation(api.bookings.createOffer);
+  const createDirectBooking = useMutation(api.bookings.createDirectBooking);
   const acceptOffer = useMutation(api.bookings.acceptOffer);
   const declineOffer = useMutation(api.bookings.declineOffer);
   const startPayment = useMutation(api.payments.startPayment);
   const submitDemoProof = useMutation(api.payments.submitDemoProof);
+  const completeDemoQris = useMutation(api.payments.completeDemoQris);
   const simulateVerification = useMutation(api.payments.simulateVerification);
 
   const seedingRequestedRef = useRef(false);
@@ -69,9 +70,6 @@ function ConvexRealtimeBridge() {
     registerConvexMutationHandlers({
       verifyDemoOtp: (args) => {
         safeSync(verifyDemoOtp(args));
-      },
-      resetDemoData: () => {
-        safeSync(resetDemoData({}));
       },
       submitApplication: (args) => {
         safeSync(submitApplication(args));
@@ -88,6 +86,9 @@ function ConvexRealtimeBridge() {
       createOffer: (args) => {
         safeSync(createOffer(args));
       },
+      createDirectBooking: (args) => {
+        safeSync(createDirectBooking(args));
+      },
       acceptOffer: (args) => {
         safeSync(acceptOffer(args));
       },
@@ -100,6 +101,9 @@ function ConvexRealtimeBridge() {
       submitDemoProof: (args) => {
         safeSync(submitDemoProof(args));
       },
+      completeDemoQris: (args) => {
+        safeSync(completeDemoQris(args));
+      },
       simulateVerification: (args) => {
         safeSync(simulateVerification(args));
       },
@@ -110,11 +114,12 @@ function ConvexRealtimeBridge() {
     };
   }, [
     acceptOffer,
+    completeDemoQris,
+    createDirectBooking,
     createOffer,
     declineOffer,
     getOrCreateConversation,
     markRead,
-    resetDemoData,
     sendMessage,
     simulateVerification,
     startPayment,

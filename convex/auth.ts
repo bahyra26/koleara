@@ -1,23 +1,20 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import {
+  DEMO_OTP_CODE,
+  isAdminAuthorized,
+  ITS_STUDENT_EMAIL_REGEX,
   MAX_NAME_LENGTH,
+  normalizeItsEmail,
   serviceResultValidator,
   userObjectValidator,
 } from "./validators";
 
-const ITS_STUDENT_EMAIL_REGEX = /^\d{10}@student\.its\.ac\.id$/;
-// shortcut: demo auth uses static OTP 123456 without email delivery; replace with Convex Auth + ITS SMTP OTP before real user launch
-const DEMO_OTP_CODE = "123456";
-
-function normalizeItsEmail(raw: string): string {
-  return raw.trim().toLowerCase();
-}
-
 export const listUsers = query({
-  args: {},
+  args: { adminKey: v.optional(v.string()) },
   returns: v.array(userObjectValidator),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
+    if (!isAdminAuthorized(args.adminKey)) return [];
     const rows = await ctx.db.query("users").take(100);
     return rows.map((row) => ({
       id: row.appId,
@@ -64,7 +61,7 @@ export const requestDemoOtp = mutation({
       return {
         ok: false as const,
         code: "INVALID_EMAIL",
-        error: "Email ITS wajib diisi.",
+        error: "ITS student email is required.",
       };
     }
     if (!ITS_STUDENT_EMAIL_REGEX.test(normalized)) {
@@ -72,7 +69,7 @@ export const requestDemoOtp = mutation({
         ok: false as const,
         code: "INVALID_EMAIL",
         error:
-          "Gunakan 10 digit NRP diikuti @student.its.ac.id (contoh: 0000000001@student.its.ac.id).",
+          "Use a 10-digit NRP followed by @student.its.ac.id (e.g. 0000000001@student.its.ac.id).",
       };
     }
 
@@ -87,7 +84,7 @@ export const requestDemoOtp = mutation({
           ok: false as const,
           code: "USER_NOT_FOUND",
           error:
-            "Akun demo dengan email ITS ini belum terdaftar. Gunakan akun contoh atau lanjut ke Daftar Demo.",
+            "No demo account found for this ITS email. Pick a demo profile or sign up.",
         };
       }
       return {
@@ -101,7 +98,7 @@ export const requestDemoOtp = mutation({
       return {
         ok: false as const,
         code: "INVALID_NAME",
-        error: `Nama lengkap wajib 2–${MAX_NAME_LENGTH} karakter.`,
+        error: `Full name must be 2–${MAX_NAME_LENGTH} characters.`,
       };
     }
 
@@ -110,7 +107,7 @@ export const requestDemoOtp = mutation({
         ok: false as const,
         code: "EMAIL_EXISTS",
         error:
-          "Email ITS demo ini sudah terdaftar. Silakan masuk melalui halaman Login.",
+          "This ITS student email is already registered. Please sign in instead.",
       };
     }
 
@@ -136,7 +133,7 @@ export const verifyDemoOtp = mutation({
         ok: false as const,
         code: "INVALID_EMAIL",
         error:
-          "Gunakan 10 digit NRP diikuti @student.its.ac.id (contoh: 0000000001@student.its.ac.id).",
+          "Use a 10-digit NRP followed by @student.its.ac.id (e.g. 0000000001@student.its.ac.id).",
       };
     }
 
@@ -145,7 +142,7 @@ export const verifyDemoOtp = mutation({
       return {
         ok: false as const,
         code: "INVALID_OTP",
-        error: `Kode OTP demo tidak sesuai. Gunakan kode demo ${DEMO_OTP_CODE}.`,
+        error: `Invalid demo OTP code. Use ${DEMO_OTP_CODE}.`,
       };
     }
 
@@ -157,7 +154,7 @@ export const verifyDemoOtp = mutation({
       return {
         ok: false as const,
         code: "INVALID_NAME",
-        error: `Nama lengkap wajib 2–${MAX_NAME_LENGTH} karakter.`,
+        error: `Full name must be 2–${MAX_NAME_LENGTH} characters.`,
       };
     }
 
@@ -171,8 +168,7 @@ export const verifyDemoOtp = mutation({
         return {
           ok: false as const,
           code: "USER_NOT_FOUND",
-          error:
-            "Akun demo tidak ditemukan. Silakan daftar demo terlebih dahulu.",
+          error: "Demo account not found. Please sign up first.",
         };
       }
       return {
@@ -190,7 +186,8 @@ export const verifyDemoOtp = mutation({
       return {
         ok: false as const,
         code: "EMAIL_EXISTS",
-        error: "Email ITS demo ini sudah terdaftar. Silakan gunakan Login.",
+        error:
+          "This ITS student email is already registered. Please sign in instead.",
       };
     }
 

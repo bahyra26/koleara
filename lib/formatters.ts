@@ -1,9 +1,3 @@
-const idrFormatter = new Intl.NumberFormat("id-ID", {
-  style: "currency",
-  currency: "IDR",
-  maximumFractionDigits: 0,
-});
-
 const wibDateTimeFormatter = new Intl.DateTimeFormat("id-ID", {
   timeZone: "Asia/Jakarta",
   weekday: "short",
@@ -32,7 +26,7 @@ const wibShortDateFormatter = new Intl.DateTimeFormat("id-ID", {
 });
 
 export function formatIdr(amount: number): string {
-  return idrFormatter.format(Math.round(amount));
+  return `Rp ${Math.round(amount).toLocaleString("id-ID")}`;
 }
 
 export function formatWibDateTime(timestampMs: number): string {
@@ -45,6 +39,66 @@ export function formatWibShortDate(timestampMs: number): string {
 
 export function formatWibTime(timestampMs: number): string {
   return `${wibTimeFormatter.format(new Date(timestampMs))} WIB`;
+}
+
+export function formatWibClockTime(timestampMs: number): string {
+  return wibTimeFormatter.format(new Date(timestampMs)).replace(".", ":");
+}
+
+const SLOT_DOW_INDEX: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
+
+const WIB_OFFSET_MS = 7 * 3_600_000;
+
+/**
+ * Resolves a weekly slot label such as "Mon 18:30" into the next upcoming UTC timestamp (ms) in WIB.
+ */
+export function resolveNextSlotTimestampWib(
+  slotLabel: string,
+  nowMs = Date.now()
+): number | null {
+  const match = slotLabel
+    .trim()
+    .match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d{1,2}):(\d{2})$/i);
+  if (!match) return null;
+
+  const targetDow = SLOT_DOW_INDEX[match[1].toLowerCase()];
+  const hour = Number.parseInt(match[2], 10);
+  const minute = Number.parseInt(match[3], 10);
+  if (
+    targetDow === undefined ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  const wibNow = new Date(nowMs + WIB_OFFSET_MS);
+  const daysAhead = (targetDow - wibNow.getUTCDay() + 7) % 7;
+  let candidateMs =
+    Date.UTC(
+      wibNow.getUTCFullYear(),
+      wibNow.getUTCMonth(),
+      wibNow.getUTCDate() + daysAhead,
+      hour,
+      minute,
+      0,
+      0
+    ) - WIB_OFFSET_MS;
+
+  if (candidateMs <= nowMs + 60_000) {
+    candidateMs += 7 * 86_400_000;
+  }
+  return candidateMs;
 }
 
 /**
