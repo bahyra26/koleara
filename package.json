@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p convex/tsconfig.json",
     "test": "node --import ./tests/register-alias.mjs --test tests/core.test.mts"
   },
   "dependencies": {

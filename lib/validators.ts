@@ -1,4 +1,4 @@
-import type { MeetingMode } from "@/lib/contracts";
+import type { MeetingMode } from "./contracts";
 
 export const ITS_STUDENT_EMAIL_REGEX = /^\d{10}@student\.its\.ac\.id$/;
 export const DEMO_OTP_CODE = "123456";
