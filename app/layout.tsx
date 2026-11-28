@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Geist, Geist_Mono } from "next/font/google";
-import { DemoBanner } from "@/components/layout/DemoBanner";
-import { Footer } from "@/components/layout/Footer";
+import { Geist_Mono, Poppins } from "next/font/google";
 import { Header, HeaderFallback } from "@/components/layout/Header";
 import { DemoStoreProvider } from "@/features/demo/DemoStoreProvider";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const poppins = Poppins({
+  variable: "--font-poppins",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -18,9 +17,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "KOLEARA — Peer Tutoring ITS (Prototipe Frontend)",
+  title: "KOLEARA — Peer Tutoring for ITS Students",
   description:
-    "Prototipe frontend-only marketplace peer tutoring mahasiswa ITS untuk Kalkulus 1 dan Fisika Dasar 1.",
+    "Find verified senior ITS tutors, share knowledge, and grow together.",
 };
 
 const EXTENSION_CLEANUP_SCRIPT = `
@@ -74,9 +73,9 @@ const EXTENSION_CLEANUP_SCRIPT = `
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="id"
+      lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${poppins.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
         <script
@@ -85,17 +84,18 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body
         suppressHydrationWarning
-        className="min-h-full flex flex-col bg-neutral-50 text-neutral-900"
+        className="min-h-full flex flex-col bg-white text-[#262626]"
       >
+        <a href="#main-content" className="sr-only fixed top-3 left-3 z-50 rounded-lg bg-white px-5 py-3 text-[#285B7B] shadow-lg focus:not-sr-only">Skip to content</a>
         <DemoStoreProvider>
-          <DemoBanner />
-          <Suspense fallback={<HeaderFallback />}>
-            <Header />
-          </Suspense>
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-8">
-            {children}
-          </main>
-          <Footer />
+          <div className="site-shell flex min-h-svh flex-1 flex-col overflow-x-clip">
+            <Suspense fallback={<HeaderFallback />}>
+              <Header />
+            </Suspense>
+            <main id="main-content" tabIndex={-1} className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col px-5 py-6 has-[[data-landing]]:py-0 sm:px-8 lg:px-10">
+              {children}
+            </main>
+          </div>
         </DemoStoreProvider>
       </body>
     </html>

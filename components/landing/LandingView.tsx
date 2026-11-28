@@ -1,162 +1,145 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { Badge } from "@/components/ui/Badge";
-import { buttonClasses } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { Notice } from "@/components/ui/Notice";
+import "./LandingView.css";
 import { useAuth } from "@/features/auth/useAuth";
-import { useCourses } from "@/features/tutors/useTutors";
+
+const HERO_STATS = [
+  {
+    value: "71,1%",
+    description: "Freshmen feel that physics is the most difficult course.",
+  },
+  {
+    value: "7 out of 15",
+    description: "Freshmen fail to find or secure a tutor.",
+  },
+  {
+    value: "94,7%",
+    description: "Freshmen have tried AI but still struggle.",
+  },
+] as const;
 
 export function LandingView() {
   const { user } = useAuth();
-  const courses = useCourses();
-  const jadiTutorHref = user ? "/jadi-tutor" : "/login?next=%2Fjadi-tutor";
+  const becomeTutorHref = user ? "/jadi-tutor" : "/login?next=%2Fjadi-tutor";
 
   return (
-    <div className="flex flex-col gap-8">
-      <section className="rounded-lg border border-neutral-200 bg-white p-6 sm:p-10">
-        <div className="max-w-2xl space-y-4">
-          <Badge variant="outline">Peer Tutoring Mahasiswa ITS — Prototipe</Badge>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 sm:text-3xl">
-            Belajar Kalkulus 1 dan Fisika Dasar 1 bersama Tutor Sebaya ITS
-          </h1>
-          <p className="text-sm leading-relaxed text-neutral-600 sm:text-base">
-            Temukan mahasiswa ITS terverifikasi (data demo), diskusikan topik
-            yang sulit lewat chat, sepakati jadwal sesi 60 menit, dan selesaikan
-            simulasi pembayaran QRIS dalam satu alur sederhana.
-          </p>
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Link
-              href="/cari"
-              className={buttonClasses({ className: "px-5 py-2.5" })}
+    <>
+      <section
+        data-landing
+        aria-labelledby="hero-heading"
+        className="landing-hero"
+      >
+        <div className="landing-stage">
+          {/* Left Copy & Actions */}
+          <div className="landing-copy">
+            <h1
+              id="hero-heading"
+              className="landing-heading"
             >
-              Cari Tutor
-            </Link>
-            <Link
-              href={jadiTutorHref}
-              className={buttonClasses({
-                variant: "outline",
-                className: "px-5 py-2.5",
-              })}
-            >
-              Jadi Tutor
-            </Link>
-          </div>
-          <p className="text-xs text-neutral-500">
-            Catatan: Tampilan grayscale sementara sebelum desain Figma final
-            tersedia. Seluruh proses login, chat, dan pembayaran berjalan secara
-            lokal di browser.
-          </p>
-        </div>
-      </section>
+              Learning{" "}
+              <span className="landing-blue">Together</span> Starts
+              <br className="hidden sm:inline" /> with{" "}
+              <span className="landing-rose">Connection</span>
+            </h1>
 
-      <section aria-labelledby="mata-kuliah-heading" className="space-y-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2
-            id="mata-kuliah-heading"
-            className="text-lg font-semibold text-neutral-900"
-          >
-            Mata Kuliah Tersedia (Cakupan MVP)
-          </h2>
-          <Link
-            href="/cari"
-            className="text-sm font-medium text-neutral-700 underline underline-offset-4 hover:text-neutral-900"
-          >
-            Lihat semua tutor
-          </Link>
-        </div>
+            <p className="landing-description">
+              Find your partner, share knowledge, and grow together.
+            </p>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          {courses.map((course) => (
-            <Card key={course.id} className="flex flex-col justify-between gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-base font-semibold text-neutral-900">
-                    {course.name}
-                  </h3>
-                  <Badge variant="muted">{course.code}</Badge>
-                </div>
-                <p className="text-sm text-neutral-600">{course.description}</p>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {course.topics.map((topic) => (
-                    <Badge key={topic} variant="default">
-                      {topic}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <Link
-                  href={`/cari?course=${encodeURIComponent(course.id)}`}
-                  className={buttonClasses({ variant: "outline" })}
+            <div className="landing-actions">
+              <Link
+                href="/cari"
+                className="landing-primary"
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
                 >
-                  Cari Tutor {course.name}
-                </Link>
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+                <span>Find a Tutor</span>
+              </Link>
+
+              <Link
+                href={becomeTutorHref}
+                className="landing-secondary"
+              >
+                <span>Become a Tutor</span>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m13 6 6 6-6 6" />
+                </svg>
+              </Link>
+            </div>
+          </div>
+
+          {/* Right Concentric Rings & Cutout Students */}
+          <div className="landing-visual">
+            {/* Concentric ring arcs */}
+            <div aria-hidden="true" className="landing-rings" />
+
+            <div className="relative z-10 w-full">
+              <Image
+                src="/hero-actors.webp"
+                alt="Two ITS students discussing a coursebook together"
+                width={1206}
+                height={1055}
+                preload
+                unoptimized
+                sizes="(min-width: 1400px) 760px, (min-width: 1200px) 680px, (min-width: 768px) 640px, 100vw"
+                className="landing-actors"
+              />
+            </div>
+
+            {/* Smooth bottom fade across both cutout and concentric rings */}
+            <div
+              aria-hidden="true"
+              className="landing-fade"
+            />
+          </div>
+
+          {/* Floating Survey Stats Card Tray */}
+          <div className="landing-stats">
+            <div>
+              <div className="landing-statGrid">
+                {HERO_STATS.map((stat) => (
+                  <div
+                    key={stat.value}
+                    className="landing-stat"
+                  >
+                    <p className="landing-value">
+                      {stat.value}
+                    </p>
+                    <p className="landing-statDescription">
+                      {stat.description}
+                    </p>
+                  </div>
+                ))}
               </div>
-            </Card>
-          ))}
+            </div>
+          </div>
         </div>
       </section>
-
-      <section aria-labelledby="alur-heading" className="space-y-4">
-        <h2
-          id="alur-heading"
-          className="text-lg font-semibold text-neutral-900"
-        >
-          Alur Penggunaan Prototipe
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Card>
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              Langkah 1
-            </p>
-            <h3 className="mt-1 text-sm font-semibold text-neutral-900">
-              Cari &amp; Bandingkan Tutor
-            </h3>
-            <p className="mt-1 text-sm text-neutral-600">
-              Filter berdasarkan mata kuliah, topik (misal Integral), anggaran
-              per 60 menit, dan jadwal.
-            </p>
-          </Card>
-          <Card>
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              Langkah 2
-            </p>
-            <h3 className="mt-1 text-sm font-semibold text-neutral-900">
-              Chat &amp; Terima Tawaran Sesi
-            </h3>
-            <p className="mt-1 text-sm text-neutral-600">
-              Hubungi tutor, diskusikan materi, lalu coba ganti peran ke tutor
-              demo untuk mengirim tawaran sesi terstruktur.
-            </p>
-          </Card>
-          <Card>
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              Langkah 3
-            </p>
-            <h3 className="mt-1 text-sm font-semibold text-neutral-900">
-              Checkout QRIS Demo
-            </h3>
-            <p className="mt-1 text-sm text-neutral-600">
-              Lihat placeholder QRIS non-payable, unggah nama bukti simulasi,
-              dan uji simulasi verifikasi admin.
-            </p>
-          </Card>
-        </div>
-      </section>
-
-      <Notice title="Informasi Mode Demo">
-        Gunakan email ITS sintetik format{" "}
-        <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">
-          0000000001@student.its.ac.id
-        </code>{" "}
-        dan OTP demo{" "}
-        <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-xs">
-          123456
-        </code>
-        . Jangan masukkan kredensial asli atau melakukan transfer uang nyata.
-      </Notice>
-    </div>
+    </>
   );
 }

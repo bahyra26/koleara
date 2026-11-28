@@ -1,0 +1,530 @@
+/* ==========================================================================
+   KOLEARA Landing Page — Responsive Multi-State Layout
+   - Phone (< 640px): Stacked copy, full/row CTAs, centered students, 1-col stats
+   - Tablet (640px – 1023px): Editorial copy, centered students, 3-col stats tray
+   - Desktop (>= 1024px): Asymmetric 2-col stage matching 1440×1024 reference,
+     locked to 100svh (0px scroll) when viewport height >= 620px
+   ========================================================================== */
+
+.landing-hero {
+  width: 100%;
+  padding: 1rem 0 2.25rem;
+}
+
+.landing-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.landing-copy {
+  position: relative;
+  z-index: 2;
+}
+
+.landing-heading {
+  margin: 0;
+  color: #263238;
+  font-size: clamp(1.95rem, 8.2vw, 2.625rem);
+  font-weight: 400;
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+}
+
+.landing-blue {
+  color: #3979a5;
+  font-weight: 600;
+}
+
+.landing-rose {
+  color: #d99c9c;
+  font-weight: 600;
+}
+
+.landing-description {
+  max-width: 34rem;
+  margin-top: 0.875rem;
+  color: #8f9ba0;
+  font-size: clamp(1rem, 3.8vw, 1.125rem);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.landing-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.landing-primary,
+.landing-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  min-height: 3.25rem;
+  padding: 0.75rem 1.375rem;
+  border-radius: 1.125rem;
+  font-size: 1.0625rem;
+  font-weight: 500;
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    color 150ms,
+    transform 150ms;
+}
+
+.landing-primary {
+  background: #3979a5;
+  color: #ffffff;
+}
+
+.landing-primary:hover {
+  background: #2e668d;
+  transform: translateY(-0.125rem);
+}
+
+.landing-primary:active {
+  background: #265779;
+  transform: translateY(0);
+}
+
+.landing-primary svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+}
+
+.landing-secondary {
+  border: 1px solid #e3e7e9;
+  background: #ffffff;
+  color: #263238;
+}
+
+.landing-secondary:hover {
+  border-color: #3979a5;
+  color: #3979a5;
+}
+
+.landing-secondary:active {
+  background: #f5f8fa;
+}
+
+.landing-secondary svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+  transition: transform 150ms;
+}
+
+.landing-secondary:hover svg {
+  transform: translateX(0.25rem);
+}
+
+/* Visual: Students Cutout + Concentric Rings */
+.landing-visual {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 25rem);
+  margin: 1.25rem auto 0;
+  pointer-events: none;
+}
+
+.landing-actors {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.landing-rings {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.landing-rings::before,
+.landing-rings::after {
+  content: "";
+  position: absolute;
+  left: calc(50% + 0.5rem);
+  top: 0;
+  width: 96%;
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  border: 2px solid #f3f4f5;
+  border-radius: 50%;
+}
+
+.landing-rings::after {
+  top: 18%;
+  width: 72%;
+}
+
+.landing-fade {
+  position: absolute;
+  inset: auto -0.25rem -0.25rem;
+  height: 4.5rem;
+  z-index: 11;
+  background: linear-gradient(
+    0deg,
+    #ffffff 10%,
+    rgb(255 255 255 / 86%) 42%,
+    transparent
+  );
+}
+
+/* Floating Survey Stats Card Tray */
+.landing-stats {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  margin-top: -1.5rem;
+  padding: 0.875rem;
+  border-radius: 1.375rem;
+  background: #ffffff;
+  box-shadow: 0 1rem 2.5rem rgb(20 40 60 / 10%);
+}
+
+.landing-statGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.625rem;
+}
+
+.landing-stat {
+  padding: 0.9375rem 1.125rem;
+  border: 1px solid #e3e7e9;
+  border-radius: 1rem;
+}
+
+.landing-value {
+  color: #263238;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.landing-statDescription {
+  margin-top: 0.375rem;
+  color: #8f9ba0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* --------------------------------------------------------------------------
+   Wide Phone (440px+): Side-by-side CTAs
+   -------------------------------------------------------------------------- */
+@media (min-width: 440px) {
+  .landing-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.25rem;
+  }
+
+  .landing-primary {
+    min-width: 12.25rem;
+    padding: 0.875rem 1.5rem;
+  }
+
+  .landing-secondary {
+    border-color: transparent;
+    background: transparent;
+    padding-inline: 0.5rem;
+  }
+
+  .landing-secondary:hover {
+    border-color: transparent;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Tablet (640px – 1023px): Balanced Editorial Hero + 3-Col Stats Grid
+   -------------------------------------------------------------------------- */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .landing-hero {
+    padding: 1.5rem 0 2.75rem;
+  }
+
+  .landing-heading {
+    font-size: clamp(2.375rem, 5.2vw, 3.25rem);
+    line-height: 1.23;
+    letter-spacing: 0;
+  }
+
+  .landing-description {
+    max-width: 36rem;
+    margin-top: 1.125rem;
+    color: #9aa4a9;
+    font-size: 1.125rem;
+  }
+
+  .landing-actions {
+    gap: 1.75rem;
+    margin-top: 1.875rem;
+  }
+
+  .landing-primary,
+  .landing-secondary {
+    min-height: 3.5rem;
+    border-radius: 1.25rem;
+    font-size: 1.125rem;
+  }
+
+  .landing-primary {
+    min-width: 13.5rem;
+  }
+
+  .landing-visual {
+    width: min(100%, 33rem);
+    margin-top: 1rem;
+  }
+
+  .landing-fade {
+    height: 6rem;
+  }
+
+  .landing-stats {
+    margin-top: -2.25rem;
+    padding: 1.125rem;
+    border-radius: 1.5rem;
+  }
+
+  .landing-statGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .landing-stat {
+    min-height: 6.75rem;
+    padding: 0.9375rem 1.0625rem;
+    border-radius: 1.125rem;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Desktop / Laptop (>= 1024px): Asymmetric 2-Column Stage (1440×1024 Ref)
+   -------------------------------------------------------------------------- */
+@media (min-width: 1024px) {
+  body:has([data-landing]) {
+    --u: clamp(0.71px, calc(100vw / 1440), 1px);
+  }
+
+  /* Lock to single screen without vertical scroll on normal laptop/desktop heights */
+  @media (min-height: 620px) {
+    body:has([data-landing]) {
+      --u: min(1px, calc(100vw / 1440), calc(100svh / 980));
+      height: 100svh;
+      min-height: 0;
+      overflow-y: hidden;
+    }
+
+    body:has([data-landing]) .site-shell {
+      height: 100svh;
+      min-height: 0;
+    }
+  }
+
+  body:has([data-landing]) .site-header-inner {
+    padding-top: calc(56 * var(--u));
+    padding-bottom: 0;
+  }
+
+  body:has([data-landing]) .site-logo {
+    height: calc(104 * var(--u));
+  }
+
+  body:has([data-landing]) .site-navigation {
+    gap: calc(78 * var(--u));
+  }
+
+  @media (min-width: 1400px) and (min-height: 900px) {
+    body:has([data-landing]) .site-navigation {
+      position: absolute;
+      left: calc(50% - calc(311 * var(--u)));
+    }
+  }
+
+  body:has([data-landing]) .site-navigation > a {
+    font-size: max(16px, calc(24 * var(--u)));
+  }
+
+  body:has([data-landing]) .site-navigation > a[aria-current="page"] {
+    font-size: max(18px, calc(28 * var(--u)));
+  }
+
+  body:has([data-landing]) .site-navigation > a[aria-current="page"]::after {
+    bottom: -1px;
+    width: calc(53 * var(--u));
+    height: 2px;
+  }
+
+  body:has([data-landing]) .site-auth {
+    gap: calc(18 * var(--u));
+  }
+
+  body:has([data-landing]) .site-login,
+  body:has([data-landing]) .site-signup {
+    font-size: max(16px, calc(24 * var(--u)));
+  }
+
+  body:has([data-landing]) .site-signup {
+    min-height: max(46px, calc(64 * var(--u)));
+    padding: calc(8 * var(--u)) calc(42 * var(--u));
+    border-radius: calc(17 * var(--u));
+  }
+
+  body:has([data-landing]) #main-content {
+    justify-content: center;
+  }
+
+  .landing-hero {
+    padding-top: calc(20 * var(--u));
+    padding-bottom: calc(28 * var(--u));
+  }
+
+  .landing-stage {
+    display: block;
+    min-height: calc(660 * var(--u));
+  }
+
+  .landing-copy {
+    max-width: calc(820 * var(--u));
+    padding-top: calc(36 * var(--u));
+  }
+
+  .landing-heading {
+    font-size: calc(64 * var(--u));
+    line-height: 1.25;
+    letter-spacing: 0;
+  }
+
+  .landing-description {
+    max-width: calc(600 * var(--u));
+    margin-top: calc(26 * var(--u));
+    color: #a3adb1;
+    font-size: max(16px, calc(24 * var(--u)));
+    line-height: 1.5;
+  }
+
+  .landing-actions {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: calc(36 * var(--u));
+    margin-top: calc(42 * var(--u));
+  }
+
+  .landing-primary,
+  .landing-secondary {
+    min-height: max(50px, calc(72 * var(--u)));
+    border-radius: calc(24 * var(--u));
+    font-size: max(16px, calc(24 * var(--u)));
+    gap: calc(12 * var(--u));
+  }
+
+  .landing-primary {
+    width: calc(274 * var(--u));
+    padding: calc(14 * var(--u)) calc(24 * var(--u));
+  }
+
+  .landing-primary svg {
+    width: calc(26 * var(--u));
+    height: calc(26 * var(--u));
+  }
+
+  .landing-secondary {
+    border-color: transparent;
+    background: transparent;
+    padding-inline: calc(8 * var(--u));
+  }
+
+  .landing-secondary svg {
+    width: calc(20 * var(--u));
+    height: calc(20 * var(--u));
+  }
+
+  .landing-visual {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    right: calc(-36 * var(--u));
+    width: calc(760 * var(--u));
+    max-width: 58%;
+    margin: 0;
+  }
+
+  .landing-actors {
+    top: calc(6 * var(--u));
+  }
+
+  .landing-rings::before,
+  .landing-rings::after {
+    left: calc(50% + calc(20 * var(--u)));
+    border-width: 2px;
+    border-color: #f6f6f6;
+  }
+
+  .landing-rings::after {
+    top: calc(95 * var(--u));
+    width: 72%;
+  }
+
+  .landing-fade {
+    inset: auto -4px calc(-6 * var(--u));
+    height: calc(112 * var(--u));
+    background: linear-gradient(
+      0deg,
+      #ffffff 8%,
+      rgb(255 255 255 / 85%) 35%,
+      transparent
+    );
+  }
+
+  .landing-stats {
+    width: clamp(620px, 65.2%, 835px);
+    max-width: 100%;
+    margin-top: calc(48 * var(--u));
+    padding: calc(22 * var(--u)) calc(20 * var(--u));
+    border-radius: calc(28 * var(--u));
+    box-shadow: 0 calc(24 * var(--u)) calc(50 * var(--u)) rgb(20 40 60 / 10%);
+  }
+
+  .landing-statGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: calc(14 * var(--u));
+  }
+
+  .landing-stat {
+    min-height: calc(116 * var(--u));
+    padding: calc(16 * var(--u)) calc(24 * var(--u));
+    border-radius: calc(21 * var(--u));
+  }
+
+  .landing-value {
+    font-size: max(16px, calc(20 * var(--u)));
+  }
+
+  .landing-statDescription {
+    margin-top: calc(10 * var(--u));
+    color: #a3adb1;
+    font-size: max(13px, calc(14 * var(--u)));
+    line-height: 1.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-primary,
+  .landing-secondary,
+  .landing-secondary svg {
+    transition: none;
+  }
+
+  .landing-primary:hover,
+  .landing-secondary:hover svg {
+    transform: none;
+  }
+}
