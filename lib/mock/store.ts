@@ -187,7 +187,7 @@ export function isValidDemoState(value: unknown): value is DemoState {
         isStr(u.id) &&
         isStr(u.email) &&
         isStr(u.name) &&
-        (u.role === "learner" || u.role === "tutor")
+        (u.role === "learner" || u.role === "tutor" || u.role === "admin")
     ) &&
     courses.every(
       (c) =>
@@ -224,7 +224,9 @@ export function isValidDemoState(value: unknown): value is DemoState {
         isStr(a.bio) &&
         isNum(a.hourlyRate) &&
         isStrArr(a.slots) &&
-        a.status === "pending" &&
+        (a.status === "pending" ||
+          a.status === "approved" ||
+          a.status === "rejected") &&
         isNum(a.createdAt)
     ) &&
     conversations.every(
@@ -257,9 +259,15 @@ export function isValidDemoState(value: unknown): value is DemoState {
         b.durationMinutes === 60 &&
         isNum(b.price) &&
         (b.status === "offered" ||
+          b.status === "requested" ||
           b.status === "accepted" ||
           b.status === "declined" ||
-          b.status === "paid") &&
+          b.status === "paid" ||
+          b.status === "tutor_marked_done" ||
+          b.status === "completed" ||
+          b.status === "cancelled" ||
+          b.status === "expired" ||
+          b.status === "disputed") &&
         isNum(b.createdAt)
     ) &&
     payments.every(
@@ -271,7 +279,8 @@ export function isValidDemoState(value: unknown): value is DemoState {
         (p.status === "unpaid" ||
           p.status === "pending_verification" ||
           p.status === "rejected" ||
-          p.status === "paid")
+          p.status === "paid" ||
+          p.status === "refunded")
     )
   );
 }

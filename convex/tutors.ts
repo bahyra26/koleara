@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { mapTutorDoc, resolveActorUser } from "./lib/auth";
 import { rankVerifiedTutors } from "./matching";
+import { languageValidator, tutorLocationValidator } from "./schema";
 import {
+  availabilitySlotObjectValidator,
   courseObjectValidator,
   isValidAppId,
   MAX_BIO_LENGTH,
@@ -9,6 +12,7 @@ import {
   MAX_NAME_LENGTH,
   MAX_SLOT_LENGTH,
   MAX_TOPIC_LENGTH,
+  sanitizeProofFileName,
   serviceResultValidator,
   tutorApplicationObjectValidator,
   tutorObjectValidator,
@@ -24,6 +28,7 @@ export const listCourses = query({
       name: row.name,
       code: row.code,
       description: row.description,
+      aliases: row.aliases,
       topics: row.topics,
     }));
   },
@@ -66,23 +71,7 @@ export const getTutorById = query({
       .withIndex("by_appId", (q) => q.eq("appId", args.tutorId))
       .first();
     if (!row || !row.verified) return null;
-    return {
-      id: row.appId,
-      userId: row.userId,
-      name: row.name,
-      department: row.department,
-      cohort: row.cohort,
-      bio: row.bio,
-      courseIds: row.courseIds,
-      topics: row.topics,
-      hourlyRate: row.hourlyRate,
-      verified: row.verified,
-      badge: row.badge,
-      rating: row.rating,
-      completedSessionsDemo: row.completedSessionsDemo,
-      location: row.location,
-      slots: row.slots,
-    };
+    return await mapTutorDoc(ctx, row);
   },
 });
 
@@ -94,6 +83,7 @@ export const searchTutors = query({
     maxBudget: v.optional(v.union(v.number(), v.null())),
     scheduleQuery: v.optional(v.string()),
     location: v.optional(v.string()),
+    language: v.optional(v.string()),
   },
   returns: v.array(
     v.object({
@@ -117,45 +107,242 @@ export const searchTutors = query({
       name: c.name,
       code: c.code,
       description: c.description,
+      aliases: c.aliases,
       topics: c.topics,
     }));
 
-    const tutors = tutorRows.map((row) => ({
-      id: row.appId,
-      userId: row.userId,
-      name: row.name,
-      department: row.department,
-      cohort: row.cohort,
-      bio: row.bio,
-      courseIds: row.courseIds,
-      topics: row.topics,
-      hourlyRate: row.hourlyRate,
-      verified: row.verified,
-      badge: row.badge,
-      rating: row.rating,
-      completedSessionsDemo: row.completedSessionsDemo,
-      location: row.location,
-      slots: row.slots,
-    }));
+    const tutors = await Promise.all(
+      tutorRows.map((row) => mapTutorDoc(ctx, row)),
+    );
 
     return rankVerifiedTutors(tutors, courses, args);
   },
 });
 
-// shortcut: demo trusts caller-supplied userId until Convex Auth is wired
+export const getTutorAvailabilitySlots = query({
+  args: { tutorId: v.string() },
+  returns: v.array(availabilitySlotObjectValidator),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("availabilitySlots")
+      .withIndex("by_tutorId_and_isActive", (q) =>
+        q.eq("tutorId", args.tutorId).eq("isActive", true),
+      )
+      .take(50);
+
+    return rows.map((row) => ({
+      id: row.appId,
+      tutorId: row.tutorId,
+      dayOfWeek: row.dayOfWeek,
+      startTime: row.startTime,
+      endTime: row.endTime,
+      isActive: row.isActive,
+    }));
+  },
+});
+
+export const upsertTutorAvailabilitySlots = mutation({
+  args: {
+    sessionToken: v.optional(v.string()),
+    actorUserId: v.optional(v.string()),
+    slots: v.array(
+      v.object({
+        dayOfWeek: v.number(),
+        startTime: v.string(),
+        endTime: v.string(),
+      }),
+    ),
+  },
+  returns: serviceResultValidator(v.object({ count: v.number() })),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.actorUserId,
+      nowMs: now,
+    });
+    if (!actor) {
+      return {
+        ok: false as const,
+        code: "UNAUTHORIZED",
+        error: "Silakan login terlebih dahulu.",
+      };
+    }
+
+    const tutor = await ctx.db
+      .query("tutors")
+      .withIndex("by_userId", (q) => q.eq("userId", actor.appId))
+      .first();
+    if (!tutor) {
+      return {
+        ok: false as const,
+        code: "TUTOR_NOT_FOUND",
+        error: "Profil tutor tidak ditemukan untuk akun ini.",
+      };
+    }
+
+    if (args.slots.length === 0 || args.slots.length > 35) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Jumlah slot aktif harus antara 1–35 slot per minggu.",
+      };
+    }
+
+    const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+    for (const s of args.slots) {
+      if (
+        !Number.isInteger(s.dayOfWeek) ||
+        s.dayOfWeek < 0 ||
+        s.dayOfWeek > 6 ||
+        !timeRegex.test(s.startTime) ||
+        !timeRegex.test(s.endTime)
+      ) {
+        return {
+          ok: false as const,
+          code: "INVALID_INPUT",
+          error: "Format hari (0–6) atau jam (HH:MM) slot tidak valid.",
+        };
+      }
+    }
+
+    const existing = await ctx.db
+      .query("availabilitySlots")
+      .withIndex("by_tutorId_and_isActive", (q) =>
+        q.eq("tutorId", tutor.appId).eq("isActive", true),
+      )
+      .take(100);
+    for (const row of existing) {
+      await ctx.db.patch("availabilitySlots", row._id, { isActive: false });
+    }
+
+    const DAY_NAMES_ID = [
+      "Minggu",
+      "Senin",
+      "Selasa",
+      "Rabu",
+      "Kamis",
+      "Jumat",
+      "Sabtu",
+    ];
+    const displaySlots: string[] = [];
+
+    for (let i = 0; i < args.slots.length; i += 1) {
+      const s = args.slots[i]!;
+      await ctx.db.insert("availabilitySlots", {
+        appId: `slot-${tutor.appId}-${now.toString(36)}-${i}`,
+        tutorId: tutor.appId,
+        dayOfWeek: s.dayOfWeek,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        isActive: true,
+      });
+      displaySlots.push(`${DAY_NAMES_ID[s.dayOfWeek]} ${s.startTime} WIB`);
+    }
+
+    await ctx.db.patch("tutors", tutor._id, { slots: displaySlots });
+
+    return {
+      ok: true as const,
+      data: { count: args.slots.length },
+    };
+  },
+});
+
+export const getTutorEarningsSummary = query({
+  args: {
+    sessionToken: v.optional(v.string()),
+    actorUserId: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.object({
+      tutorId: v.string(),
+      heldIdr: v.number(),
+      readyForPayoutIdr: v.number(),
+      paidOutIdr: v.number(),
+      completedSessions: v.number(),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.actorUserId,
+    });
+    if (!actor) return null;
+
+    const tutor = await ctx.db
+      .query("tutors")
+      .withIndex("by_userId", (q) => q.eq("userId", actor.appId))
+      .first();
+    if (!tutor) return null;
+
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_tutorId_and_startAt", (q) => q.eq("tutorId", tutor.appId))
+      .take(300);
+
+    let heldIdr = 0;
+    let readyForPayoutIdr = 0;
+    let paidOutIdr = 0;
+    let completedSessions = 0;
+
+    for (const b of bookings) {
+      if (b.status === "completed") completedSessions += 1;
+      if (b.escrowStatus === "held") heldIdr += b.price;
+      else if (b.escrowStatus === "ready_for_payout") readyForPayoutIdr += b.price;
+      else if (b.escrowStatus === "paid_out") paidOutIdr += b.price;
+    }
+
+    return {
+      tutorId: tutor.appId,
+      heldIdr,
+      readyForPayoutIdr,
+      paidOutIdr,
+      completedSessions,
+    };
+  },
+});
+
 export const submitApplication = mutation({
   args: {
+    sessionToken: v.optional(v.string()),
     appId: v.optional(v.string()),
     userId: v.string(),
     name: v.string(),
+    department: v.optional(v.string()),
+    cohort: v.optional(v.number()),
     courseIds: v.array(v.string()),
     topics: v.array(v.string()),
     bio: v.string(),
     hourlyRate: v.number(),
+    teachingMode: v.optional(tutorLocationValidator),
+    campusSpots: v.optional(v.array(v.string())),
+    languages: v.optional(v.array(languageValidator)),
     slots: v.array(v.string()),
+    proofStorageId: v.optional(v.id("_storage")),
+    proofFileName: v.optional(v.string()),
+    payoutBankOrWallet: v.optional(v.string()),
+    payoutAccountName: v.optional(v.string()),
+    payoutAccountNumber: v.optional(v.string()),
   },
   returns: serviceResultValidator(tutorApplicationObjectValidator),
   handler: async (ctx, args) => {
+    const now = Date.now();
+    const user = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.userId,
+      nowMs: now,
+    });
+
+    if (!user) {
+      return {
+        ok: false as const,
+        code: "USER_NOT_FOUND",
+        error: "Silakan login terlebih dahulu sebelum mendaftar jadi tutor.",
+      };
+    }
+
     const trimmedName = args.name.trim();
     if (trimmedName.length < 2 || trimmedName.length > MAX_NAME_LENGTH) {
       return {
@@ -233,23 +420,18 @@ export const submitApplication = mutation({
       };
     }
 
-    const [user, validCourses] = await Promise.all([
-      ctx.db
-        .query("users")
-        .withIndex("by_appId", (q) => q.eq("appId", args.userId))
-        .first(),
-      ctx.db.query("courses").take(50),
-    ]);
-
-    if (!user) {
-      return {
-        ok: false as const,
-        code: "USER_NOT_FOUND",
-        error:
-          "Silakan login demo terlebih dahulu sebelum mendaftar jadi tutor.",
-      };
+    if (args.proofStorageId) {
+      const meta = await ctx.db.system.get("_storage", args.proofStorageId);
+      if (!meta) {
+        return {
+          ok: false as const,
+          code: "FILE_NOT_FOUND",
+          error: "Berkas bukti nilai/asdos tidak ditemukan di penyimpanan.",
+        };
+      }
     }
 
+    const validCourses = await ctx.db.query("courses").take(50);
     const validCourseIds = new Set(validCourses.map((c) => c.appId));
     if (uniqueCourseIds.some((cid) => !validCourseIds.has(cid))) {
       return {
@@ -259,7 +441,6 @@ export const submitApplication = mutation({
       };
     }
 
-    const now = Date.now();
     const appId =
       args.appId ??
       `app-tutor-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -283,29 +464,69 @@ export const submitApplication = mutation({
           id: existing.appId,
           userId: existing.userId,
           name: existing.name,
+          department: existing.department,
+          cohort: existing.cohort,
           courseIds: existing.courseIds,
           topics: existing.topics,
           bio: existing.bio,
           hourlyRate: existing.hourlyRate,
+          teachingMode: existing.teachingMode,
+          campusSpots: existing.campusSpots,
+          languages: existing.languages,
           slots: existing.slots,
+          proofStorageId: existing.proofStorageId,
+          proofFileName: existing.proofFileName,
+          payoutBankOrWallet: existing.payoutBankOrWallet,
+          payoutAccountName: existing.payoutAccountName,
+          payoutAccountNumber: existing.payoutAccountNumber,
           status: existing.status,
+          reviewedBy: existing.reviewedBy,
+          reviewedAt: existing.reviewedAt,
+          rejectionReason: existing.rejectionReason,
           createdAt: existing.createdAt,
         },
       };
     }
 
+    const department = args.department?.trim() || user.department;
+    const cohort = args.cohort ?? user.cohortYear;
+    const proofFileName = args.proofFileName
+      ? sanitizeProofFileName(args.proofFileName)
+      : undefined;
+    const campusSpots = args.campusSpots
+      ?.map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+    const languages =
+      args.languages && args.languages.length > 0 ? args.languages : ["id" as const];
+
     await ctx.db.insert("tutorApplications", {
       appId,
       userId: user.appId,
       name: trimmedName,
+      department,
+      cohort,
       courseIds: uniqueCourseIds,
       topics: cleanTopics,
       bio: trimmedBio,
       hourlyRate: args.hourlyRate,
+      teachingMode: args.teachingMode ?? "hybrid",
+      campusSpots,
+      languages,
       slots: cleanSlots,
+      proofStorageId: args.proofStorageId,
+      proofFileName,
+      payoutBankOrWallet: args.payoutBankOrWallet?.trim() || undefined,
+      payoutAccountName: args.payoutAccountName?.trim() || undefined,
+      payoutAccountNumber:
+        args.payoutAccountNumber?.replace(/\s+/g, "").trim() || undefined,
       status: "pending",
       createdAt: now,
     });
+
+    const proofUrl = args.proofStorageId
+      ? ((await ctx.storage.getUrl(args.proofStorageId)) ?? undefined)
+      : undefined;
 
     return {
       ok: true as const,
@@ -313,11 +534,23 @@ export const submitApplication = mutation({
         id: appId,
         userId: user.appId,
         name: trimmedName,
+        department,
+        cohort,
         courseIds: uniqueCourseIds,
         topics: cleanTopics,
         bio: trimmedBio,
         hourlyRate: args.hourlyRate,
+        teachingMode: args.teachingMode ?? ("hybrid" as const),
+        campusSpots,
+        languages,
         slots: cleanSlots,
+        proofStorageId: args.proofStorageId,
+        proofFileName,
+        proofUrl,
+        payoutBankOrWallet: args.payoutBankOrWallet?.trim() || undefined,
+        payoutAccountName: args.payoutAccountName?.trim() || undefined,
+        payoutAccountNumber:
+          args.payoutAccountNumber?.replace(/\s+/g, "").trim() || undefined,
         status: "pending" as const,
         createdAt: now,
       },
@@ -326,27 +559,53 @@ export const submitApplication = mutation({
 });
 
 export const listApplications = query({
-  args: { userId: v.string() },
+  args: {
+    userId: v.string(),
+    sessionToken: v.optional(v.string()),
+  },
   returns: v.array(tutorApplicationObjectValidator),
   handler: async (ctx, args) => {
-    if (!args.userId.trim()) return [];
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.userId,
+    });
+    if (!actor) return [];
+
     const rows = await ctx.db
       .query("tutorApplications")
-      .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", actor.appId))
       .order("desc")
       .take(50);
 
-    return rows.map((row) => ({
-      id: row.appId,
-      userId: row.userId,
-      name: row.name,
-      courseIds: row.courseIds,
-      topics: row.topics,
-      bio: row.bio,
-      hourlyRate: row.hourlyRate,
-      slots: row.slots,
-      status: row.status,
-      createdAt: row.createdAt,
-    }));
+    return await Promise.all(
+      rows.map(async (row) => ({
+        id: row.appId,
+        userId: row.userId,
+        name: row.name,
+        department: row.department,
+        cohort: row.cohort,
+        courseIds: row.courseIds,
+        topics: row.topics,
+        bio: row.bio,
+        hourlyRate: row.hourlyRate,
+        teachingMode: row.teachingMode,
+        campusSpots: row.campusSpots,
+        languages: row.languages,
+        slots: row.slots,
+        proofStorageId: row.proofStorageId,
+        proofFileName: row.proofFileName,
+        proofUrl: row.proofStorageId
+          ? ((await ctx.storage.getUrl(row.proofStorageId)) ?? undefined)
+          : undefined,
+        payoutBankOrWallet: row.payoutBankOrWallet,
+        payoutAccountName: row.payoutAccountName,
+        payoutAccountNumber: row.payoutAccountNumber,
+        status: row.status,
+        reviewedBy: row.reviewedBy,
+        reviewedAt: row.reviewedAt,
+        rejectionReason: row.rejectionReason,
+        createdAt: row.createdAt,
+      })),
+    );
   },
 });

@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import {
+  canRevealSensitiveContact,
+  isDemoFallbackAllowed,
+  mapTutorDoc,
+  mapUserDoc,
+} from "./lib/auth";
+import {
   bookingObjectValidator,
   conversationObjectValidator,
   courseObjectValidator,
@@ -11,7 +17,11 @@ import {
   userObjectValidator,
 } from "./validators";
 
-// shortcut: demo mode syncs shared collections to power the multi-role switcher UI; scope per-user with ctx.auth when moving off demo mode
+/**
+ * Syncs shared collections for demo mode.
+ * When KOLEARA_ALLOW_DEMO_OTP="false" (production mode), returns only public catalog
+ * (`courses` & verified `tutors`) so private PII/messages/bookings are never exposed publicly.
+ */
 export const getAppState = query({
   args: {},
   returns: v.object({
@@ -26,6 +36,38 @@ export const getAppState = query({
     payments: v.array(paymentObjectValidator),
   }),
   handler: async (ctx) => {
+    const demoMode = isDemoFallbackAllowed();
+
+    if (!demoMode) {
+      const [courses, verifiedTutors] = await Promise.all([
+        ctx.db.query("courses").take(50),
+        ctx.db
+          .query("tutors")
+          .withIndex("by_verified_and_hourlyRate", (q) => q.eq("verified", true))
+          .take(200),
+      ]);
+      return {
+        seeded: courses.length > 0 && verifiedTutors.length > 0,
+        users: [],
+        courses: courses.map((c) => ({
+          id: c.appId,
+          name: c.name,
+          code: c.code,
+          description: c.description,
+          aliases: c.aliases,
+          topics: c.topics,
+        })),
+        tutors: await Promise.all(
+          verifiedTutors.map((t) => mapTutorDoc(ctx, t)),
+        ),
+        tutorApplications: [],
+        conversations: [],
+        messages: [],
+        bookings: [],
+        payments: [],
+      };
+    }
+
     const [
       seedUsers,
       recentUsersDesc,
@@ -61,46 +103,37 @@ export const getAppState = query({
 
     return {
       seeded: courses.length > 0 && tutors.length > 0,
-      users: users.map((u) => ({
-        id: u.appId,
-        email: u.email,
-        name: u.name,
-        role: u.role,
-      })),
+      users: await Promise.all(
+        users.map((u) => mapUserDoc(ctx, u, { includePrivate: false })),
+      ),
       courses: courses.map((c) => ({
         id: c.appId,
         name: c.name,
         code: c.code,
         description: c.description,
+        aliases: c.aliases,
         topics: c.topics,
       })),
-      tutors: tutors.map((t) => ({
-        id: t.appId,
-        userId: t.userId,
-        name: t.name,
-        department: t.department,
-        cohort: t.cohort,
-        bio: t.bio,
-        courseIds: t.courseIds,
-        topics: t.topics,
-        hourlyRate: t.hourlyRate,
-        verified: t.verified,
-        badge: t.badge,
-        rating: t.rating,
-        completedSessionsDemo: t.completedSessionsDemo,
-        location: t.location,
-        slots: t.slots,
-      })),
+      tutors: await Promise.all(tutors.map((t) => mapTutorDoc(ctx, t))),
       tutorApplications: tutorApplications.map((a) => ({
         id: a.appId,
         userId: a.userId,
         name: a.name,
+        department: a.department,
+        cohort: a.cohort,
         courseIds: a.courseIds,
         topics: a.topics,
         bio: a.bio,
         hourlyRate: a.hourlyRate,
+        teachingMode: a.teachingMode,
+        campusSpots: a.campusSpots,
+        languages: a.languages,
         slots: a.slots,
+        proofFileName: a.proofFileName,
         status: a.status,
+        reviewedBy: a.reviewedBy,
+        reviewedAt: a.reviewedAt,
+        rejectionReason: a.rejectionReason,
         createdAt: a.createdAt,
       })),
       conversations: conversations.map((c) => ({
@@ -128,10 +161,26 @@ export const getAppState = query({
         topic: b.topic,
         startAt: b.startAt,
         durationMinutes: b.durationMinutes,
+        sessionCount: b.sessionCount,
         price: b.price,
         meetingMode: b.meetingMode,
         brief: b.brief,
+        difficultyTier: b.difficultyTier,
+        diagnosticNotes: b.diagnosticNotes,
+        agreedNoJoki: b.agreedNoJoki,
+        meetingLink: canRevealSensitiveContact(b.status)
+          ? b.meetingLink
+          : undefined,
         status: b.status,
+        escrowStatus: b.escrowStatus,
+        declineReason: b.declineReason,
+        paymentDeadlineAt: b.paymentDeadlineAt,
+        acceptedAt: b.acceptedAt,
+        paidAt: b.paidAt,
+        tutorMarkedDoneAt: b.tutorMarkedDoneAt,
+        completedAt: b.completedAt,
+        cancelledAt: b.cancelledAt,
+        cancelledBy: b.cancelledBy,
         createdAt: b.createdAt,
       })),
       payments: payments.map((p) => ({
@@ -139,9 +188,13 @@ export const getAppState = query({
         bookingId: p.bookingId,
         amount: p.amount,
         status: p.status,
+        paymentMethod: p.paymentMethod,
         proofName: p.proofName,
+        midtransOrderId: p.midtransOrderId,
         submittedAt: p.submittedAt,
         verifiedAt: p.verifiedAt,
+        paidAt: p.paidAt,
+        refundedAt: p.refundedAt,
         rejectionReason: p.rejectionReason,
       })),
     };

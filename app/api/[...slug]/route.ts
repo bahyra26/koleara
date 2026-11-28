@@ -44,7 +44,7 @@ async function ensureConvexSeededOnce(): Promise<void> {
 }
 
 async function callConvex(
-  kind: "query" | "mutation",
+  kind: "query" | "mutation" | "action",
   fnPath: string,
   args: Record<string, unknown>,
   options?: { skipEnsureSeed?: boolean }
@@ -175,6 +175,30 @@ function jsonError(message: string, status = 400, code?: string): Response {
   );
 }
 
+function extractSessionToken(request: Request): string | undefined {
+  const sessionHeader = request.headers.get("x-session-token")?.trim();
+  if (sessionHeader) return sessionHeader;
+  const authHeader = request.headers.get("authorization")?.trim();
+  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (token) return token;
+  }
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  for (const part of cookieHeader.split(";")) {
+    const [k, ...rest] = part.trim().split("=");
+    if (k === "koleara_session") {
+      const value = rest.join("=").trim();
+      if (value) return decodeURIComponent(value);
+    }
+  }
+  return undefined;
+}
+
+function buildSessionCookie(token: string, maxAgeSeconds: number): string {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `koleara_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;
+}
+
 function extractAdminKey(request: Request): string | undefined {
   const headerKey = request.headers.get("x-admin-key")?.trim();
   if (headerKey) return headerKey;
@@ -246,7 +270,20 @@ function statusFromServiceCode(
     case "NOT_ACCEPTED":
     case "INVALID_STATE":
       return 409;
+    case "RATE_LIMITED":
+    case "OTP_LOCKED":
+      return 429;
+    case "MIDTRANS_NOT_CONFIGURED":
+    case "EMAIL_NOT_CONFIGURED":
+      return 503;
+    case "DEMO_DISABLED":
+      return 403;
+    case "ALREADY_REVIEWED":
+    case "NO_ELIGIBLE_BOOKINGS":
+      return 409;
     case "OFFER_EXPIRED":
+    case "OTP_EXPIRED":
+    case "OTP_NOT_FOUND":
     case "INVALID_INPUT":
     case "INVALID_EMAIL":
     case "INVALID_OTP":
@@ -399,17 +436,32 @@ export async function GET(
       );
     }
 
+    const rawLanguage = url.searchParams.get("language")?.trim().toLowerCase();
+    if (rawLanguage && rawLanguage !== "id" && rawLanguage !== "en") {
+      return jsonError(
+        "Parameter language harus bernilai id atau en.",
+        400,
+        "INVALID_LANGUAGE"
+      );
+    }
+
     const convexRes = await callConvex("query", "tutors:searchTutors", {
       query,
       courseId,
       topic,
       maxBudget,
       scheduleQuery,
+      ...(rawLocation ? { location: rawLocation } : {}),
+      ...(rawLanguage ? { language: rawLanguage } : {}),
     });
 
     const rawResults = convexRes.ok
       ? (convexRes.value as Array<{
-          tutor: { id: string; location?: "online" | "offline" | "hybrid" };
+          tutor: {
+            id: string;
+            location?: "online" | "offline" | "hybrid";
+            languages?: Array<"id" | "en">;
+          };
         }>)
       : tutorService.search({
           query,
@@ -420,6 +472,10 @@ export async function GET(
           location:
             rawLocation === "online" || rawLocation === "offline"
               ? rawLocation
+              : undefined,
+          language:
+            rawLanguage === "id" || rawLanguage === "en"
+              ? rawLanguage
               : undefined,
         });
 
@@ -706,6 +762,192 @@ export async function GET(
     return jsonSuccess("Antrean pembayaran berhasil diambil.", pending);
   }
 
+  // 16. GET /api/payment-config (Static QRIS image & mode)
+  if (path === "payment-config") {
+    const convexRes = await callConvex("query", "payments:getPaymentConfig", {});
+    const fallbackConfig = {
+      mode: "static_qris",
+      merchantName: process.env.KOLEARA_STATIC_QRIS_MERCHANT ?? "KOLEARA ITS",
+      qrisImageUrl: process.env.KOLEARA_STATIC_QRIS_URL ?? "/qris-koleara.png",
+      instructions:
+        "Scan QRIS KOLEARA menggunakan e-wallet atau mobile banking sesuai nominal tepat, lalu unggah bukti transfer untuk diverifikasi admin.",
+      midtransEnabled: Boolean(process.env.MIDTRANS_SERVER_KEY?.trim()),
+      updatedAt: 0,
+    };
+    return jsonSuccess(
+      "Konfigurasi pembayaran berhasil diambil.",
+      convexRes.ok ? convexRes.value : fallbackConfig
+    );
+  }
+
+  // 17. GET /api/auth/me
+  if (path === "auth/me") {
+    const sessionToken = extractSessionToken(request);
+    if (!sessionToken) {
+      return jsonError("Sesi login tidak ditemukan.", 401, "UNAUTHORIZED");
+    }
+    const convexRes = await callConvex("query", "auth:getMe", { sessionToken });
+    if (!convexRes.ok || !convexRes.value) {
+      return jsonError("Sesi login tidak valid atau kedaluwarsa.", 401, "UNAUTHORIZED");
+    }
+    return jsonSuccess("Profil pengguna aktif berhasil diambil.", convexRes.value);
+  }
+
+  // 18. GET /api/tutors/:tutor_id/reviews
+  if (slug.length === 3 && slug[0] === "tutors" && slug[2] === "reviews") {
+    const tutorId = slug[1];
+    const limitRaw = Number(url.searchParams.get("limit") ?? "20");
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 20;
+    const convexRes = await callConvex("query", "reviews:listTutorReviews", {
+      tutorId,
+      limit,
+    });
+    return jsonSuccess(
+      "Ulasan tutor berhasil diambil.",
+      convexRes.ok ? convexRes.value : []
+    );
+  }
+
+  // 19. GET /api/tutors/:tutor_id/busy-slots
+  if (slug.length === 3 && slug[0] === "tutors" && slug[2] === "busy-slots") {
+    const tutorId = slug[1];
+    const now = Date.now();
+    const fromMs = Number(url.searchParams.get("from") ?? String(now));
+    const toMs = Number(
+      url.searchParams.get("to") ?? String(now + 14 * 24 * 60 * 60 * 1000)
+    );
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) {
+      return jsonError("Rentang from/to tidak valid.", 400, "INVALID_INPUT");
+    }
+    const convexRes = await callConvex("query", "bookings:getTutorBusySlots", {
+      tutorId,
+      fromMs,
+      toMs,
+    });
+    return jsonSuccess(
+      "Daftar slot terisi tutor berhasil diambil.",
+      convexRes.ok ? convexRes.value : []
+    );
+  }
+
+  // 20. GET /api/sessions
+  if (path === "sessions") {
+    const sessionToken = extractSessionToken(request);
+    const userId = (
+      url.searchParams.get("user_id") ??
+      url.searchParams.get("userId") ??
+      ""
+    ).trim();
+    const roleView = url.searchParams.get("role") ?? undefined;
+    if (!sessionToken && !userId) {
+      return jsonError("Autentikasi atau user_id wajib diisi.", 401, "UNAUTHORIZED");
+    }
+    const convexRes = await callConvex("query", "bookings:listMySessions", {
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(userId ? { userId } : {}),
+      ...(roleView === "learner" || roleView === "tutor" || roleView === "all"
+        ? { roleView }
+        : {}),
+    });
+    return jsonSuccess(
+      "Daftar sesi berhasil diambil.",
+      convexRes.ok ? convexRes.value : []
+    );
+  }
+
+  // 21. GET /api/sessions/:booking_id
+  if (slug.length === 2 && slug[0] === "sessions") {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const userId = (
+      url.searchParams.get("user_id") ??
+      url.searchParams.get("userId") ??
+      ""
+    ).trim();
+    const adminKey = extractAdminKey(request);
+    if (!sessionToken && !userId && !adminKey) {
+      return jsonError("Autentikasi diperlukan.", 401, "UNAUTHORIZED");
+    }
+    const convexRes = await callConvex("query", "bookings:getSessionDetail", {
+      bookingId,
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(userId ? { userId } : {}),
+      ...(adminKey ? { adminKey } : {}),
+    });
+    if (!convexRes.ok || !convexRes.value) {
+      return jsonError("Detail sesi tidak ditemukan atau akses ditolak.", 404, "NOT_FOUND");
+    }
+    return jsonSuccess("Detail sesi berhasil diambil.", convexRes.value);
+  }
+
+  // 22. GET /api/profile/payout-account
+  if (path === "profile/payout-account") {
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = (
+      url.searchParams.get("user_id") ??
+      url.searchParams.get("userId") ??
+      ""
+    ).trim();
+    const convexRes = await callConvex("query", "auth:getMyPayoutAccount", {
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+    });
+    return jsonSuccess(
+      "Data rekening pencairan berhasil diambil.",
+      convexRes.ok ? convexRes.value : null
+    );
+  }
+
+  // 23. GET /api/tutor/earnings
+  if (path === "tutor/earnings") {
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = (
+      url.searchParams.get("user_id") ??
+      url.searchParams.get("userId") ??
+      ""
+    ).trim();
+    const convexRes = await callConvex("query", "tutors:getTutorEarningsSummary", {
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+    });
+    return jsonSuccess(
+      "Ringkasan pendapatan tutor berhasil diambil.",
+      convexRes.ok ? convexRes.value : null
+    );
+  }
+
+  // 24. GET /api/admin/payouts/ready
+  if (path === "admin/payouts/ready") {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+    const sessionToken = extractSessionToken(request);
+    const convexRes = await callConvex("query", "admin:listReadyPayouts", {
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
+    });
+    return jsonSuccess(
+      "Antrean pencairan honor berhasil diambil.",
+      convexRes.ok ? convexRes.value : []
+    );
+  }
+
+  // 25. GET /api/admin/payouts
+  if (path === "admin/payouts") {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+    const sessionToken = extractSessionToken(request);
+    const tutorId = url.searchParams.get("tutor_id") ?? undefined;
+    const convexRes = await callConvex("query", "admin:listPayouts", {
+      ...(tutorId ? { tutorId } : {}),
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
+    });
+    return jsonSuccess(
+      "Riwayat pencairan honor berhasil diambil.",
+      convexRes.ok ? convexRes.value : []
+    );
+  }
+
   return jsonError(`Endpoint GET /api/${path} tidak ditemukan.`, 404);
 }
 
@@ -739,15 +981,30 @@ export async function POST(
     const mode = body.mode === "signup" ? "signup" : "login";
     const name = typeof body.name === "string" ? body.name : undefined;
 
-    const convexRes = await callConvex("mutation", "auth:requestDemoOtp", {
+    const convexRes = await callConvex("action", "auth:requestEmailOtp", {
       email,
       mode,
       name,
     });
-    const res = convexRes.ok
+    const res: {
+      ok: boolean;
+      data?: {
+        email: string;
+        demoOtp?: string;
+        delivery?: string;
+        expiresAt?: number;
+      };
+      error?: string;
+      code?: string;
+    } = convexRes.ok
       ? (convexRes.value as {
           ok: boolean;
-          data?: { email: string; demoOtp: string };
+          data?: {
+            email: string;
+            demoOtp?: string;
+            delivery?: string;
+            expiresAt?: number;
+          };
           error?: string;
           code?: string;
         })
@@ -762,7 +1019,9 @@ export async function POST(
     }
     return jsonSuccess("Kode OTP berhasil dikirim.", {
       email: res.data?.email,
-      demo_otp: res.data?.demoOtp,
+      delivery: res.data?.delivery ?? "demo",
+      ...(res.data?.expiresAt ? { expires_at: res.data.expiresAt } : {}),
+      ...(res.data?.demoOtp ? { demo_otp: res.data.demoOtp } : {}),
     });
   }
 
@@ -787,20 +1046,46 @@ export async function POST(
     const mode = body.mode === "signup" ? "signup" : "login";
     const name = typeof body.name === "string" ? body.name : undefined;
 
-    const convexRes = await callConvex("mutation", "auth:verifyDemoOtp", {
+    const convexRes = await callConvex("mutation", "auth:verifyEmailOtp", {
       email,
       otp,
       mode,
       name,
     });
-    const res = convexRes.ok
-      ? (convexRes.value as {
-          ok: boolean;
-          data?: unknown;
-          error?: string;
-          code?: string;
-        })
-      : authService.verifyDemoOtp({ email, otp, mode, name });
+    if (convexRes.ok) {
+      const res = convexRes.value as {
+        ok: boolean;
+        data?: { user: unknown; sessionToken: string; expiresAt: number };
+        error?: string;
+        code?: string;
+      };
+      if (!res.ok || !res.data) {
+        return jsonError(
+          res.error ?? "Verifikasi OTP gagal.",
+          statusFromServiceCode(res.code, 400),
+          res.code
+        );
+      }
+      const response = Response.json(
+        {
+          success: true,
+          message: "Verifikasi OTP berhasil.",
+          data: res.data.user,
+          meta: {
+            session_token: res.data.sessionToken,
+            expires_at: res.data.expiresAt,
+          },
+        },
+        { status: 200 }
+      );
+      response.headers.set(
+        "Set-Cookie",
+        buildSessionCookie(res.data.sessionToken, 7 * 24 * 60 * 60)
+      );
+      return response;
+    }
+
+    const res = authService.verifyDemoOtp({ email, otp, mode, name });
 
     if (!res.ok) {
       return jsonError(
@@ -810,6 +1095,44 @@ export async function POST(
       );
     }
     return jsonSuccess("Verifikasi OTP berhasil.", res.data);
+  }
+
+  // 2b. POST /api/auth/logout
+  if (path === "auth/logout") {
+    const sessionToken = extractSessionToken(request);
+    if (sessionToken) {
+      await callConvex("mutation", "auth:logout", { sessionToken });
+    }
+    const response = jsonSuccess("Logout berhasil.", { ok: true });
+    response.headers.set("Set-Cookie", buildSessionCookie("", 0));
+    return response;
+  }
+
+  // 2c. POST /api/storage/upload-url
+  if (path === "storage/upload-url") {
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const convexRes = await callConvex("mutation", "storage:generateUploadUrl", {
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan penyimpanan Convex tidak tersedia.", 503, "STORAGE_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal membuat upload URL.",
+        statusFromServiceCode(res.code, 401),
+        res.code
+      );
+    }
+    return jsonSuccess("Upload URL siap digunakan.", res.data);
   }
 
   // 3. POST /api/tutor-applications
@@ -1127,6 +1450,247 @@ export async function POST(
     );
   }
 
+  // 10. POST /api/bookings/request (Brief F6: Session Request + Pre-Session Brief)
+  if (path === "bookings/request") {
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const tutorId = String(body.tutor_id ?? body.tutorId ?? "");
+    const courseId = String(body.course_id ?? body.courseId ?? "");
+    const topic = typeof body.topic === "string" ? body.topic : "";
+    const startAt = Number(body.start_at ?? body.startAt ?? Number.NaN);
+    const sessionCountRaw = Number(body.session_count ?? body.sessionCount ?? 1);
+    const sessionCount = sessionCountRaw === 4 ? (4 as const) : (1 as const);
+    const difficultyTier = String(body.difficulty_tier ?? body.difficultyTier ?? "basic");
+    const diagnosticNotes =
+      typeof body.diagnostic_notes === "string"
+        ? body.diagnostic_notes
+        : typeof body.diagnosticNotes === "string"
+          ? body.diagnosticNotes
+          : "";
+    const agreedNoJoki = Boolean(body.agreed_no_joki ?? body.agreedNoJoki);
+    const rawMeetingMode = body.meeting_mode ?? body.meetingMode;
+
+    if (
+      difficultyTier !== "basic" &&
+      difficultyTier !== "intermediate" &&
+      difficultyTier !== "exam_prep"
+    ) {
+      return jsonError(
+        "difficulty_tier harus bernilai basic, intermediate, atau exam_prep.",
+        400,
+        "INVALID_INPUT"
+      );
+    }
+    if (!Number.isFinite(startAt)) {
+      return jsonError("start_at harus berupa timestamp valid.", 400, "INVALID_INPUT");
+    }
+
+    const convexRes = await callConvex("mutation", "bookings:requestSession", {
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+      tutorId,
+      courseId,
+      topic,
+      startAt,
+      sessionCount,
+      ...(rawMeetingMode === "online" || rawMeetingMode === "offline_its"
+        ? { meetingMode: rawMeetingMode }
+        : {}),
+      difficultyTier,
+      diagnosticNotes,
+      agreedNoJoki,
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal mengajukan sesi.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Permintaan sesi berhasil dikirim ke tutor.", res.data, 201);
+  }
+
+  // 11. POST /api/bookings/direct (Figma Direct Booking)
+  if (path === "bookings/direct") {
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const tutorId = String(body.tutor_id ?? body.tutorId ?? "");
+    const courseId = String(body.course_id ?? body.courseId ?? "");
+    const topic = typeof body.topic === "string" ? body.topic : "";
+    const startAt = Number(body.start_at ?? body.startAt ?? Number.NaN);
+    const sessionCount = Number(body.session_count ?? body.sessionCount ?? 1) === 4 ? 4 : 1;
+    const brief = typeof body.brief === "string" ? body.brief : undefined;
+    if (!Number.isFinite(startAt)) {
+      return jsonError("start_at harus berupa timestamp valid.", 400, "INVALID_INPUT");
+    }
+
+    const convexRes = await callConvex("mutation", "bookings:createDirectBooking", {
+      ...(sessionToken ? { sessionToken } : {}),
+      actorUserId,
+      tutorId,
+      courseId,
+      topic,
+      startAt,
+      sessionCount,
+      brief,
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal membuat booking.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Booking berhasil dibuat. Silakan lakukan pembayaran.", res.data, 201);
+  }
+
+  // 12. POST /api/bookings/:booking_id/review (Brief F10: Confirm + Review)
+  if (slug.length === 3 && slug[0] === "bookings" && slug[2] === "review") {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const clarityRating = Number(body.clarity_rating ?? body.clarityRating ?? Number.NaN);
+    const pacingRating = Number(body.pacing_rating ?? body.pacingRating ?? Number.NaN);
+    const reviewText =
+      typeof body.review_text === "string"
+        ? body.review_text
+        : typeof body.reviewText === "string"
+          ? body.reviewText
+          : undefined;
+
+    const convexRes = await callConvex(
+      "mutation",
+      "bookings:confirmAndReviewSession",
+      {
+        bookingId,
+        clarityRating,
+        pacingRating,
+        reviewText,
+        ...(sessionToken ? { sessionToken } : {}),
+        ...(actorUserId ? { actorUserId } : {}),
+      }
+    );
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal mengirim konfirmasi dan ulasan.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Sesi dikonfirmasi selesai dan ulasan tersimpan.", res.data, 201);
+  }
+
+  // 13. POST /api/bookings/:booking_id/payment/snap (Midtrans Snap - ready to plug)
+  if (
+    slug.length === 4 &&
+    slug[0] === "bookings" &&
+    slug[2] === "payment" &&
+    slug[3] === "snap"
+  ) {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const convexRes = await callConvex("action", "midtrans:createSnapTransaction", {
+      bookingId,
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal membuat transaksi Midtrans Snap.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Token Midtrans Snap berhasil dibuat.", res.data);
+  }
+
+  // 14. POST /api/admin/payouts (Brief F11: Admin Payout Batch)
+  if (path === "admin/payouts") {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+    const sessionToken = extractSessionToken(request);
+    const tutorId = String(body.tutor_id ?? body.tutorId ?? "");
+    const rawBookingIds = body.booking_ids ?? body.bookingIds;
+    const bookingIds = Array.isArray(rawBookingIds)
+      ? rawBookingIds.map(String)
+      : undefined;
+    const proofStorageId =
+      typeof body.proof_storage_id === "string"
+        ? body.proof_storage_id
+        : typeof body.proofStorageId === "string"
+          ? body.proofStorageId
+          : undefined;
+    const proofFileName =
+      typeof body.proof_file_name === "string"
+        ? body.proof_file_name
+        : typeof body.proofFileName === "string"
+          ? body.proofFileName
+          : undefined;
+
+    const convexRes = await callConvex("mutation", "admin:createPayoutBatch", {
+      tutorId,
+      ...(bookingIds ? { bookingIds } : {}),
+      ...(proofStorageId ? { proofStorageId } : {}),
+      ...(proofFileName ? { proofFileName } : {}),
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal memproses pencairan honor.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Pencairan honor berhasil dicatat.", res.data, 201);
+  }
+
   return jsonError(`Endpoint POST /api/${path} tidak ditemukan.`, 404);
 }
 
@@ -1379,6 +1943,334 @@ export async function PATCH(
       "Pengajuan tutor disetujui dan profil tutor telah aktif.",
       res.data
     );
+  }
+
+  // 6. PATCH /api/profile/onboarding
+  if (path === "profile/onboarding") {
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const name = typeof body.name === "string" ? body.name : undefined;
+    const department = typeof body.department === "string" ? body.department : "";
+    const cohortYear =
+      body.cohort_year !== undefined
+        ? Number(body.cohort_year)
+        : body.cohortYear !== undefined
+          ? Number(body.cohortYear)
+          : undefined;
+    const preferredLanguage =
+      body.preferred_language === "en" || body.preferredLanguage === "en"
+        ? "en"
+        : "id";
+    const whatsapp = typeof body.whatsapp === "string" ? body.whatsapp : "";
+
+    const convexRes = await callConvex(
+      "mutation",
+      "auth:updateOnboardingProfile",
+      {
+        ...(sessionToken ? { sessionToken } : {}),
+        ...(actorUserId ? { actorUserId } : {}),
+        ...(name ? { name } : {}),
+        department,
+        ...(cohortYear !== undefined ? { cohortYear } : {}),
+        preferredLanguage,
+        whatsapp,
+      }
+    );
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal menyimpan profil.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Profil mahasiswa ITS berhasil diperbarui.", res.data);
+  }
+
+  // 7. PATCH /api/profile/payout-account
+  if (path === "profile/payout-account") {
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const bankOrWallet = String(body.bank_or_wallet ?? body.bankOrWallet ?? "");
+    const accountName = String(body.account_name ?? body.accountName ?? "");
+    const accountNumber = String(body.account_number ?? body.accountNumber ?? "");
+
+    const convexRes = await callConvex("mutation", "auth:upsertMyPayoutAccount", {
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+      bankOrWallet,
+      accountName,
+      accountNumber,
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal menyimpan rekening pencairan.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Rekening pencairan berhasil disimpan.", res.data);
+  }
+
+  // 8. PATCH /api/bookings/:booking_id/tutor-accept (Brief F7)
+  if (
+    slug.length === 3 &&
+    slug[0] === "bookings" &&
+    slug[2] === "tutor-accept"
+  ) {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const meetingLink =
+      typeof body.meeting_link === "string"
+        ? body.meeting_link
+        : typeof body.meetingLink === "string"
+          ? body.meetingLink
+          : undefined;
+
+    const convexRes = await callConvex("mutation", "bookings:acceptSession", {
+      bookingId,
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+      ...(meetingLink ? { meetingLink } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal menerima permintaan sesi.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Permintaan sesi diterima. Menunggu pembayaran learner.", res.data);
+  }
+
+  // 9. PATCH /api/bookings/:booking_id/tutor-decline (Brief F7)
+  if (
+    slug.length === 3 &&
+    slug[0] === "bookings" &&
+    slug[2] === "tutor-decline"
+  ) {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const declineReason =
+      typeof body.decline_reason === "string"
+        ? body.decline_reason
+        : typeof body.declineReason === "string"
+          ? body.declineReason
+          : undefined;
+
+    const convexRes = await callConvex("mutation", "bookings:declineSession", {
+      bookingId,
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+      ...(declineReason ? { declineReason } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal menolak permintaan sesi.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Permintaan sesi ditolak.", res.data);
+  }
+
+  // 10. PATCH /api/bookings/:booking_id/meeting-link
+  if (
+    slug.length === 3 &&
+    slug[0] === "bookings" &&
+    slug[2] === "meeting-link"
+  ) {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const meetingLink = String(body.meeting_link ?? body.meetingLink ?? "");
+
+    const convexRes = await callConvex("mutation", "bookings:updateMeetingLink", {
+      bookingId,
+      meetingLink,
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal memperbarui link meeting.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Link meeting berhasil diperbarui.", res.data);
+  }
+
+  // 11. PATCH /api/bookings/:booking_id/cancel (Brief Bab 4.5 refund 12 jam)
+  if (slug.length === 3 && slug[0] === "bookings" && slug[2] === "cancel") {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+    const adminKey = extractAdminKey(request);
+    const reason = typeof body.reason === "string" ? body.reason : undefined;
+
+    const convexRes = await callConvex("mutation", "bookings:cancelSession", {
+      bookingId,
+      ...(reason ? { reason } : {}),
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+      ...(adminKey ? { adminKey } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal membatalkan sesi.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Sesi berhasil dibatalkan.", res.data);
+  }
+
+  // 12. PATCH /api/bookings/:booking_id/tutor-done (Brief F10 + 24h auto-complete)
+  if (slug.length === 3 && slug[0] === "bookings" && slug[2] === "tutor-done") {
+    const bookingId = slug[1];
+    const sessionToken = extractSessionToken(request);
+    const actorUserId = String(body.actor_user_id ?? body.actorUserId ?? "");
+
+    const convexRes = await callConvex("mutation", "bookings:markTutorDone", {
+      bookingId,
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(actorUserId ? { actorUserId } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal menandai sesi selesai.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess(
+      "Sesi ditandai selesai oleh tutor. Otomatis terkonfirmasi dalam 24 jam jika learner belum merespons.",
+      res.data
+    );
+  }
+
+  // 13. PATCH /api/admin/payment-config (Update Static QRIS image & mode)
+  if (path === "admin/payment-config") {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+    const sessionToken = extractSessionToken(request);
+    const mode = body.mode === "midtrans" ? "midtrans" : "static_qris";
+    const merchantName = String(body.merchant_name ?? body.merchantName ?? "KOLEARA ITS");
+    const instructions = String(
+      body.instructions ??
+        "Scan QRIS KOLEARA sesuai nominal tepat, lalu unggah bukti transfer."
+    );
+    const qrisImageUrl =
+      typeof body.qris_image_url === "string"
+        ? body.qris_image_url
+        : typeof body.qrisImageUrl === "string"
+          ? body.qrisImageUrl
+          : undefined;
+    const qrisStorageId =
+      typeof body.qris_storage_id === "string"
+        ? body.qris_storage_id
+        : typeof body.qrisStorageId === "string"
+          ? body.qrisStorageId
+          : undefined;
+    const accountInfo =
+      typeof body.account_info === "string"
+        ? body.account_info
+        : typeof body.accountInfo === "string"
+          ? body.accountInfo
+          : undefined;
+
+    const convexRes = await callConvex("mutation", "payments:updatePaymentConfig", {
+      mode,
+      merchantName,
+      instructions,
+      ...(qrisImageUrl ? { qrisImageUrl } : {}),
+      ...(qrisStorageId ? { qrisStorageId } : {}),
+      ...(accountInfo ? { accountInfo } : {}),
+      ...(sessionToken ? { sessionToken } : {}),
+      ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
+    });
+    if (!convexRes.ok) {
+      return jsonError("Layanan Convex tidak tersedia.", 503, "BACKEND_UNAVAILABLE");
+    }
+    const res = convexRes.value as {
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+      code?: string;
+    };
+    if (!res.ok) {
+      return jsonError(
+        res.error ?? "Gagal memperbarui konfigurasi pembayaran.",
+        statusFromServiceCode(res.code, 400),
+        res.code
+      );
+    }
+    return jsonSuccess("Konfigurasi QRIS / pembayaran berhasil diperbarui.", res.data);
   }
 
   return jsonError(`Endpoint PATCH /api/${path} tidak ditemukan.`, 404);

@@ -1,10 +1,13 @@
 import { v } from "convex/values";
 import { computePilotMetrics } from "../lib/metrics";
 import { query } from "./_generated/server";
-import { isAdminAuthorized } from "./validators";
+import { isAdminRequestAuthorized } from "./lib/auth";
 
 export const getPilotMetrics = query({
-  args: { adminKey: v.optional(v.string()) },
+  args: {
+    sessionToken: v.optional(v.string()),
+    adminKey: v.optional(v.string()),
+  },
   returns: v.object({
     totalUsers: v.number(),
     totalLearners: v.number(),
@@ -15,13 +18,28 @@ export const getPilotMetrics = query({
     totalBookings: v.number(),
     acceptedOrPaidBookings: v.number(),
     paidBookings: v.number(),
+    completedBookings: v.number(),
+    cancelledBookings: v.number(),
+    expiredBookings: v.number(),
     acceptanceRatePercent: v.number(),
     paymentCompletionRatePercent: v.number(),
+    sessionCompletionRatePercent: v.number(),
+    medianTimeToAcceptMinutes: v.union(v.number(), v.null()),
+    medianTimeToFirstRequestMinutes: v.union(v.number(), v.null()),
     averageTutorRating: v.number(),
+    averageClarityRating: v.number(),
+    averagePacingRating: v.number(),
+    totalReviews: v.number(),
     totalRevenueIdr: v.number(),
+    totalEscrowHeldIdr: v.number(),
+    totalPaidOutIdr: v.number(),
   }),
   handler: async (ctx, args) => {
-    if (!isAdminAuthorized(args.adminKey)) {
+    const admin = await isAdminRequestAuthorized(ctx, {
+      sessionToken: args.sessionToken,
+      adminKey: args.adminKey,
+    });
+    if (!admin.authorized) {
       return computePilotMetrics({
         users: [],
         verifiedTutors: [],
@@ -29,6 +47,7 @@ export const getPilotMetrics = query({
         conversationsCount: 0,
         messagesCount: 0,
         bookings: [],
+        reviews: [],
       });
     }
 
@@ -39,6 +58,7 @@ export const getPilotMetrics = query({
       conversations,
       messages,
       bookings,
+      reviews,
     ] = await Promise.all([
       ctx.db.query("users").order("desc").take(500),
       ctx.db
@@ -52,6 +72,7 @@ export const getPilotMetrics = query({
       ctx.db.query("conversations").order("desc").take(500),
       ctx.db.query("messages").order("desc").take(1000),
       ctx.db.query("bookings").order("desc").take(1000),
+      ctx.db.query("sessionReviews").order("desc").take(1000),
     ]);
 
     return computePilotMetrics({
@@ -61,6 +82,7 @@ export const getPilotMetrics = query({
       conversationsCount: conversations.length,
       messagesCount: messages.length,
       bookings,
+      reviews,
     });
   },
 });

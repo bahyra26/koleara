@@ -30,6 +30,16 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
+  readonly KOLEARA_ADMIN_KEY: string | undefined;
+  readonly KOLEARA_ALLOW_DEMO_OTP: string | undefined;
+  readonly KOLEARA_APP_URL: string | undefined;
+  readonly KOLEARA_STATIC_QRIS_MERCHANT: string | undefined;
+  readonly KOLEARA_STATIC_QRIS_URL: string | undefined;
+  readonly MIDTRANS_CLIENT_KEY: string | undefined;
+  readonly MIDTRANS_IS_PRODUCTION: string | undefined;
+  readonly MIDTRANS_SERVER_KEY: string | undefined;
+  readonly RESEND_API_KEY: string | undefined;
+  readonly RESEND_FROM_EMAIL: string | undefined;
 };
 
 /**

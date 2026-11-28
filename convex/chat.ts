@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { mapTutorDoc, mapUserDoc, resolveActorUser } from "./lib/auth";
 import {
   conversationObjectValidator,
   isValidAppId,
@@ -10,9 +11,9 @@ import {
   userObjectValidator,
 } from "./validators";
 
-// shortcut: demo trusts caller-supplied learnerId/senderId/readerId until Convex Auth is wired
 export const getOrCreateConversation = mutation({
   args: {
+    sessionToken: v.optional(v.string()),
     appId: v.optional(v.string()),
     learnerId: v.string(),
     tutorId: v.string(),
@@ -27,11 +28,13 @@ export const getOrCreateConversation = mutation({
       };
     }
 
+    const now = Date.now();
     const [learner, tutor] = await Promise.all([
-      ctx.db
-        .query("users")
-        .withIndex("by_appId", (q) => q.eq("appId", args.learnerId))
-        .first(),
+      resolveActorUser(ctx, {
+        sessionToken: args.sessionToken,
+        fallbackUserId: args.learnerId,
+        nowMs: now,
+      }),
       ctx.db
         .query("tutors")
         .withIndex("by_appId", (q) => q.eq("appId", args.tutorId))
@@ -42,7 +45,7 @@ export const getOrCreateConversation = mutation({
       return {
         ok: false as const,
         code: "USER_NOT_FOUND",
-        error: "Sesi demo tidak ditemukan.",
+        error: "Sesi login tidak ditemukan.",
       };
     }
     if (!tutor || !tutor.verified) {
@@ -57,14 +60,14 @@ export const getOrCreateConversation = mutation({
         ok: false as const,
         code: "SELF_CHAT_NOT_ALLOWED",
         error:
-          "Anda sedang menggunakan akun tutor ini. Ganti ke akun mahasiswa demo untuk menghubungi tutor ini.",
+          "Anda sedang menggunakan akun tutor ini. Ganti ke akun mahasiswa untuk menghubungi tutor ini.",
       };
     }
 
     const existing = await ctx.db
       .query("conversations")
       .withIndex("by_learnerId_and_tutorId", (q) =>
-        q.eq("learnerId", args.learnerId).eq("tutorId", args.tutorId),
+        q.eq("learnerId", learner.appId).eq("tutorId", args.tutorId),
       )
       .first();
 
@@ -80,13 +83,12 @@ export const getOrCreateConversation = mutation({
       };
     }
 
-    const now = Date.now();
     const appId =
       args.appId ??
       `conv-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     await ctx.db.insert("conversations", {
       appId,
-      learnerId: args.learnerId,
+      learnerId: learner.appId,
       tutorId: args.tutorId,
       lastMessageAt: now,
     });
@@ -95,7 +97,7 @@ export const getOrCreateConversation = mutation({
       ok: true as const,
       data: {
         id: appId,
-        learnerId: args.learnerId,
+        learnerId: learner.appId,
         tutorId: args.tutorId,
         lastMessageAt: now,
       },
@@ -104,7 +106,10 @@ export const getOrCreateConversation = mutation({
 });
 
 export const listConversations = query({
-  args: { userId: v.string() },
+  args: {
+    userId: v.string(),
+    sessionToken: v.optional(v.string()),
+  },
   returns: v.array(
     v.object({
       conversation: conversationObjectValidator,
@@ -117,19 +122,23 @@ export const listConversations = query({
     }),
   ),
   handler: async (ctx, args) => {
-    if (!args.userId.trim()) return [];
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.userId,
+    });
+    if (!actor) return [];
 
     const [asLearnerConvs, myTutors] = await Promise.all([
       ctx.db
         .query("conversations")
         .withIndex("by_learnerId_and_lastMessageAt", (q) =>
-          q.eq("learnerId", args.userId),
+          q.eq("learnerId", actor.appId),
         )
         .order("desc")
         .take(100),
       ctx.db
         .query("tutors")
-        .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+        .withIndex("by_userId", (q) => q.eq("userId", actor.appId))
         .take(5),
     ]);
 
@@ -184,45 +193,26 @@ export const listConversations = query({
       ),
     ]);
 
-    const userById = new Map(
+    const mappedLearners = await Promise.all(
       learnerDocs
         .filter((u): u is NonNullable<typeof u> => Boolean(u))
-        .map((u) => [
-          u.appId,
-          { id: u.appId, email: u.email, name: u.name, role: u.role },
-        ]),
+        .map(async (u) => [u.appId, await mapUserDoc(ctx, u)] as const),
     );
-    const tutorById = new Map(
+    const mappedTutors = await Promise.all(
       tutorDocs
         .filter((t): t is NonNullable<typeof t> => Boolean(t))
-        .map((t) => [
-          t.appId,
-          {
-            id: t.appId,
-            userId: t.userId,
-            name: t.name,
-            department: t.department,
-            cohort: t.cohort,
-            bio: t.bio,
-            courseIds: t.courseIds,
-            topics: t.topics,
-            hourlyRate: t.hourlyRate,
-            verified: t.verified,
-            badge: t.badge,
-            rating: t.rating,
-            completedSessionsDemo: t.completedSessionsDemo,
-            location: t.location,
-            slots: t.slots,
-          },
-        ]),
+        .map(async (t) => [t.appId, await mapTutorDoc(ctx, t)] as const),
     );
+
+    const userById = new Map(mappedLearners);
+    const tutorById = new Map(mappedTutors);
 
     const eligible = conversations.flatMap((conv) => {
       const learner = userById.get(conv.learnerId);
       const tutor = tutorById.get(conv.tutorId);
       if (!learner || !tutor) return [];
-      const isLearner = conv.learnerId === args.userId;
-      const isTutor = tutor.userId === args.userId;
+      const isLearner = conv.learnerId === actor.appId;
+      const isTutor = tutor.userId === actor.appId;
       if (!isLearner && !isTutor) return [];
       return [{ conv, learner, tutor, isLearner }];
     });
@@ -253,7 +243,7 @@ export const listConversations = query({
 
         let unreadCount = 0;
         for (const msg of recentMessagesDesc) {
-          if (msg.senderId !== args.userId && !msg.readAt) {
+          if (msg.senderId !== actor.appId && !msg.readAt) {
             unreadCount += 1;
           }
         }
@@ -286,24 +276,28 @@ export const listMessages = query({
   args: {
     conversationId: v.string(),
     userId: v.optional(v.string()),
+    sessionToken: v.optional(v.string()),
   },
   returns: v.array(messageObjectValidator),
   handler: async (ctx, args) => {
-    if (args.userId !== undefined) {
-      const uid = args.userId.trim();
-      if (!uid) return [];
-      const conversation = await ctx.db
-        .query("conversations")
-        .withIndex("by_appId", (q) => q.eq("appId", args.conversationId))
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.userId,
+    });
+    if (!actor) return [];
+
+    const conversation = await ctx.db
+      .query("conversations")
+      .withIndex("by_appId", (q) => q.eq("appId", args.conversationId))
+      .first();
+    if (!conversation) return [];
+
+    if (conversation.learnerId !== actor.appId) {
+      const tutor = await ctx.db
+        .query("tutors")
+        .withIndex("by_appId", (q) => q.eq("appId", conversation.tutorId))
         .first();
-      if (!conversation) return [];
-      if (conversation.learnerId !== uid) {
-        const tutor = await ctx.db
-          .query("tutors")
-          .withIndex("by_appId", (q) => q.eq("appId", conversation.tutorId))
-          .first();
-        if (tutor?.userId !== uid) return [];
-      }
+      if (tutor?.userId !== actor.appId) return [];
     }
 
     const rowsDesc = await ctx.db
@@ -329,6 +323,7 @@ export const listMessages = query({
 
 export const sendMessage = mutation({
   args: {
+    sessionToken: v.optional(v.string()),
     appId: v.optional(v.string()),
     conversationId: v.string(),
     senderId: v.string(),
@@ -336,6 +331,20 @@ export const sendMessage = mutation({
   },
   returns: serviceResultValidator(messageObjectValidator),
   handler: async (ctx, args) => {
+    const now = Date.now();
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.senderId,
+      nowMs: now,
+    });
+    if (!actor) {
+      return {
+        ok: false as const,
+        code: "UNAUTHORIZED",
+        error: "Sesi login tidak valid.",
+      };
+    }
+
     const trimmed = args.content.trim();
     if (!trimmed) {
       return {
@@ -378,18 +387,16 @@ export const sendMessage = mutation({
       .first();
 
     const isParticipant =
-      conversation.learnerId === args.senderId ||
-      tutor?.userId === args.senderId;
+      conversation.learnerId === actor.appId || tutor?.userId === actor.appId;
 
     if (!isParticipant) {
       return {
         ok: false as const,
         code: "FORBIDDEN",
-        error: "Akun demo aktif bukan peserta percakapan ini.",
+        error: "Akun aktif bukan peserta percakapan ini.",
       };
     }
 
-    const now = Date.now();
     const appId =
       args.appId ??
       `msg-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -402,7 +409,7 @@ export const sendMessage = mutation({
     if (existing) {
       if (
         existing.conversationId !== conversation.appId ||
-        existing.senderId !== args.senderId
+        existing.senderId !== actor.appId
       ) {
         return {
           ok: false as const,
@@ -428,7 +435,7 @@ export const sendMessage = mutation({
     await ctx.db.insert("messages", {
       appId,
       conversationId: conversation.appId,
-      senderId: args.senderId,
+      senderId: actor.appId,
       type: "text",
       content: trimmed,
       createdAt: now,
@@ -443,7 +450,7 @@ export const sendMessage = mutation({
       data: {
         id: appId,
         conversationId: conversation.appId,
-        senderId: args.senderId,
+        senderId: actor.appId,
         type: "text" as const,
         content: trimmed,
         createdAt: now,
@@ -454,6 +461,7 @@ export const sendMessage = mutation({
 
 export const markRead = mutation({
   args: {
+    sessionToken: v.optional(v.string()),
     conversationId: v.string(),
     readerId: v.string(),
   },
@@ -463,12 +471,17 @@ export const markRead = mutation({
     code: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
-    const readerId = args.readerId.trim();
-    if (!readerId) {
+    const now = Date.now();
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.readerId,
+      nowMs: now,
+    });
+    if (!actor) {
       return {
         ok: false,
         code: "INVALID_INPUT",
-        error: "ID pembaca wajib diisi.",
+        error: "ID pembaca atau sesi tidak valid.",
       };
     }
 
@@ -490,7 +503,7 @@ export const markRead = mutation({
       .first();
 
     const isParticipant =
-      conversation.learnerId === readerId || tutor?.userId === readerId;
+      conversation.learnerId === actor.appId || tutor?.userId === actor.appId;
     if (!isParticipant) {
       return {
         ok: false,
@@ -507,9 +520,8 @@ export const markRead = mutation({
       .order("desc")
       .take(200);
 
-    const now = Date.now();
     for (const msg of messages) {
-      if (msg.senderId !== readerId && !msg.readAt) {
+      if (msg.senderId !== actor.appId && !msg.readAt) {
         await ctx.db.patch("messages", msg._id, { readAt: now });
       }
     }

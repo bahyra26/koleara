@@ -23,10 +23,18 @@ import {
 import { applyRemoteCollections, getDemoStateSnapshot } from "@/lib/mock/store";
 import { DELETE, GET, PATCH, POST } from "@/app/api/[...slug]/route";
 import {
+  evaluateCancellationRefund,
+  extractCohortYearFromNrp,
+  extractNrpFromItsEmail,
   sanitizeReturnPath,
+  sha512Hex,
   validateDemoOtp,
   validateItsEmail,
+  validateWhatsappNumber,
+  verifyMidtransSignature,
 } from "@/lib/validators";
+import { computePilotMetrics } from "@/lib/metrics";
+import { POST as MIDTRANS_WEBHOOK_POST } from "@/app/api/midtrans/webhook/route";
 
 beforeEach(() => {
   resetDemoStore();
@@ -807,6 +815,224 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
       } else {
         process.env.NEXT_PUBLIC_CONVEX_URL = prevConvexUrl;
       }
+    }
+  });
+});
+
+describe("Brief v2 backend logic: NRP cohort, Static QRIS, Midtrans SHA-512, refund 12h, and pilot metrics", () => {
+  it("extracts ITS NRP and cohort year from digits 5 & 6 and normalizes WhatsApp numbers", () => {
+    assert.equal(extractNrpFromItsEmail("5025261001@student.its.ac.id"), "5025261001");
+    assert.equal(extractCohortYearFromNrp("5025261001"), 2026);
+    assert.equal(extractCohortYearFromNrp("5025231042"), 2023);
+    assert.equal(extractCohortYearFromNrp("0000000001"), undefined);
+
+    const wa1 = validateWhatsappNumber("0812-3456-7890");
+    assert.equal(wa1.valid, true);
+    assert.equal(wa1.normalized, "6281234567890");
+
+    const wa2 = validateWhatsappNumber("+62 813 9999 8888");
+    assert.equal(wa2.valid, true);
+    assert.equal(wa2.normalized, "6281399998888");
+
+    assert.equal(validateWhatsappNumber("123").valid, false);
+  });
+
+  it("verifies Midtrans SHA-512 signatures and rejects tampered payloads", async () => {
+    const serverKey = "SB-Mid-server-TESTKEY123";
+    const orderId = "KLR-bk-001";
+    const statusCode = "200";
+    const grossAmount = "45000.00";
+    const validSig = await sha512Hex(`${orderId}${statusCode}${grossAmount}${serverKey}`);
+
+    assert.equal(
+      await verifyMidtransSignature({
+        orderId,
+        statusCode,
+        grossAmount,
+        serverKey,
+        signatureKey: validSig,
+      }),
+      true
+    );
+    assert.equal(
+      await verifyMidtransSignature({
+        orderId,
+        statusCode,
+        grossAmount: "10000.00",
+        serverKey,
+        signatureKey: validSig,
+      }),
+      false
+    );
+
+    const prevServerKey = process.env.MIDTRANS_SERVER_KEY;
+    process.env.MIDTRANS_SERVER_KEY = serverKey;
+    try {
+      const tamperedRes = await MIDTRANS_WEBHOOK_POST(
+        new Request("http://localhost:3000/api/midtrans/webhook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order_id: orderId,
+            status_code: statusCode,
+            gross_amount: grossAmount,
+            signature_key: "deadbeef",
+          }),
+        })
+      );
+      assert.equal(tamperedRes.status, 401);
+    } finally {
+      if (prevServerKey === undefined) delete process.env.MIDTRANS_SERVER_KEY;
+      else process.env.MIDTRANS_SERVER_KEY = prevServerKey;
+    }
+  });
+
+  it("enforces Bab 4.5 12-hour cancellation and refund policy", () => {
+    const now = Date.parse("2026-11-28T12:00:00+07:00");
+    const in15Hours = now + 15 * 60 * 60 * 1000;
+    const in4Hours = now + 4 * 60 * 60 * 1000;
+
+    const learnerEarly = evaluateCancellationRefund({
+      cancelledByRole: "learner",
+      wasPaid: true,
+      startAt: in15Hours,
+      nowMs: now,
+    });
+    assert.equal(learnerEarly.refundEligible, true);
+    assert.equal(learnerEarly.nextEscrowStatus, "refunded");
+
+    const learnerLate = evaluateCancellationRefund({
+      cancelledByRole: "learner",
+      wasPaid: true,
+      startAt: in4Hours,
+      nowMs: now,
+    });
+    assert.equal(learnerLate.refundEligible, false);
+    assert.equal(learnerLate.nextEscrowStatus, "ready_for_payout");
+
+    const tutorCancel = evaluateCancellationRefund({
+      cancelledByRole: "tutor",
+      wasPaid: true,
+      startAt: in4Hours,
+      nowMs: now,
+    });
+    assert.equal(tutorCancel.refundEligible, true);
+    assert.equal(tutorCancel.nextEscrowStatus, "refunded");
+  });
+
+  it("filters tutors by language, supports Fisika Mekanika alias, and computes Bab 6.1 pilot metrics", () => {
+    const courses = [
+      {
+        id: "course-fisika-dasar-1",
+        code: "KF234101",
+        name: "Fisika Dasar 1",
+        description: "Mekanika klasik",
+        aliases: ["Fisika Mekanika"],
+        topics: ["Kinematika 1D & 2D"],
+      },
+    ];
+    const tutors = [
+      {
+        id: "tutor-en",
+        userId: "u-en",
+        name: "Bilingual Tutor",
+        department: "Fisika",
+        cohort: 2023,
+        bio: "Bilingual tutor for IUP students",
+        courseIds: ["course-fisika-dasar-1"],
+        topics: ["Kinematika 1D & 2D"],
+        hourlyRate: 35000,
+        verified: true,
+        badge: "asdos" as const,
+        reviewCount: 4,
+        clarityRatingSum: 19,
+        languages: ["id" as const, "en" as const],
+        slots: ["Senin 19:00 WIB"],
+      },
+      {
+        id: "tutor-id",
+        userId: "u-id",
+        name: "Indonesian Tutor",
+        department: "Fisika",
+        cohort: 2023,
+        bio: "Tutor fisika dasar",
+        courseIds: ["course-fisika-dasar-1"],
+        topics: ["Kinematika 1D & 2D"],
+        hourlyRate: 30000,
+        verified: true,
+        badge: "grade" as const,
+        languages: ["id" as const],
+        slots: ["Senin 19:00 WIB"],
+      },
+    ];
+
+    const enMatches = rankVerifiedTutors(tutors, courses, {
+      query: "Fisika Mekanika",
+      language: "en",
+    });
+    assert.equal(enMatches.length, 1);
+    assert.equal(enMatches[0]?.tutor.id, "tutor-en");
+
+    const base = Date.parse("2026-11-28T10:00:00+07:00");
+    const metrics = computePilotMetrics({
+      users: [
+        { id: "u1", role: "learner", createdAt: base },
+        { id: "u2", role: "learner", createdAt: base },
+        { id: "t1", role: "tutor", createdAt: base },
+      ],
+      verifiedTutors: [{ rating: 4.8 }],
+      pendingApplicationsCount: 1,
+      conversationsCount: 2,
+      messagesCount: 8,
+      bookings: [
+        {
+          status: "completed",
+          price: 35000,
+          learnerId: "u1",
+          createdAt: base + 10 * 60_000,
+          acceptedAt: base + 30 * 60_000,
+          escrowStatus: "paid_out",
+        },
+        {
+          status: "paid",
+          price: 40000,
+          learnerId: "u2",
+          createdAt: base + 20 * 60_000,
+          acceptedAt: base + 60 * 60_000,
+          escrowStatus: "held",
+        },
+      ],
+      reviews: [
+        { clarityRating: 5, pacingRating: 4 },
+        { clarityRating: 4, pacingRating: 5 },
+      ],
+    });
+
+    assert.equal(metrics.completedBookings, 1);
+    assert.equal(metrics.sessionCompletionRatePercent, 50);
+    assert.equal(metrics.medianTimeToAcceptMinutes, 30);
+    assert.equal(metrics.medianTimeToFirstRequestMinutes, 15);
+    assert.equal(metrics.averageClarityRating, 4.5);
+    assert.equal(metrics.averagePacingRating, 4.5);
+    assert.equal(metrics.totalEscrowHeldIdr, 40000);
+    assert.equal(metrics.totalPaidOutIdr, 35000);
+  });
+
+  it("exposes static QRIS config via GET /api/payment-config", async () => {
+    const prevConvexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+    process.env.NEXT_PUBLIC_CONVEX_URL = "http://127.0.0.1:1";
+    try {
+      const res = await GET(
+        new Request("http://localhost:3000/api/payment-config"),
+        { params: Promise.resolve({ slug: ["payment-config"] }) }
+      );
+      assert.equal(res.status, 200);
+      const json = (await res.json()) as { data: { mode: string; qrisImageUrl: string } };
+      assert.equal(json.data.mode, "static_qris");
+      assert.equal(typeof json.data.qrisImageUrl, "string");
+    } finally {
+      if (prevConvexUrl === undefined) delete process.env.NEXT_PUBLIC_CONVEX_URL;
+      else process.env.NEXT_PUBLIC_CONVEX_URL = prevConvexUrl;
     }
   });
 });

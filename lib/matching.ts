@@ -158,6 +158,7 @@ export type RankableCourse = {
   name: string;
   code: string;
   description: string;
+  aliases?: string[];
   topics: string[];
 };
 
@@ -174,8 +175,13 @@ export type RankableTutor = {
   verified: boolean;
   badge?: "grade" | "asdos";
   rating?: number;
+  reviewCount?: number;
+  clarityRatingAvg?: number;
+  clarityRatingSum?: number;
+  completedSessions?: number;
   completedSessionsDemo?: number;
   location?: "online" | "offline" | "hybrid";
+  languages?: Array<"id" | "en">;
   slots: string[];
 };
 
@@ -217,6 +223,16 @@ export function matchesTutorLocation(
   return loc === normalized;
 }
 
+export function matchesTutorLanguage(
+  tutor: Pick<RankableTutor, "languages">,
+  filterLanguage?: string
+): boolean {
+  const normalized = (filterLanguage ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  const langs = tutor.languages && tutor.languages.length > 0 ? tutor.languages : ["id"];
+  return langs.some((lang) => lang.toLowerCase() === normalized);
+}
+
 function slotMatchesScheduleQuery(slot: string, rawQuery: string): boolean {
   const slotLower = slot.toLowerCase();
   const q = rawQuery.trim().toLowerCase();
@@ -253,6 +269,7 @@ export function rankVerifiedTutors<
     maxBudget?: number | null;
     scheduleQuery?: string;
     location?: string;
+    language?: string;
   }
 ): Array<RankedTutorItem<TTutor, TCourse>> {
   if (
@@ -270,6 +287,7 @@ export function rankVerifiedTutors<
     typeof filters.maxBudget === "number" ? filters.maxBudget : null;
   const scheduleQuery = (filters.scheduleQuery ?? "").trim().toLowerCase();
   const locationFilter = (filters.location ?? "").trim().toLowerCase();
+  const languageFilter = (filters.language ?? "").trim().toLowerCase();
 
   const hasActiveFilter = Boolean(
     queryText ||
@@ -277,7 +295,8 @@ export function rankVerifiedTutors<
       topic ||
       maxBudget !== null ||
       scheduleQuery ||
-      locationFilter
+      locationFilter ||
+      languageFilter
   );
 
   const scored: Array<{
@@ -306,6 +325,7 @@ export function rankVerifiedTutors<
     }
     if (maxBudget !== null && tutor.hourlyRate > maxBudget) continue;
     if (!matchesTutorLocation(tutor, locationFilter)) continue;
+    if (!matchesTutorLanguage(tutor, languageFilter)) continue;
     if (
       scheduleQuery &&
       !tutor.slots.some((slot) => slotMatchesScheduleQuery(slot, scheduleQuery))
@@ -321,6 +341,7 @@ export function rankVerifiedTutors<
         tutor.bio,
         ...tutorCourses.flatMap((c) => [
           c.name,
+          ...(c.aliases ?? []),
           formatCourseOptionLabel(c),
           formatCourseTabLabel(c),
         ]),
@@ -364,6 +385,15 @@ export function rankVerifiedTutors<
       ? courseById.get(courseId)?.name
       : tutorCourses[0]?.name;
 
+    const hasRealReviews =
+      typeof tutor.reviewCount === "number" && tutor.reviewCount > 0;
+    const realRatingSum =
+      hasRealReviews && typeof tutor.clarityRatingSum === "number"
+        ? tutor.clarityRatingSum
+        : hasRealReviews && typeof tutor.clarityRatingAvg === "number"
+          ? tutor.clarityRatingAvg * tutor.reviewCount!
+          : undefined;
+
     const calc = calculateBriefMatchScore({
       tutorId: tutor.id,
       mastersSubtopic: Boolean(matchedTopicLabel),
@@ -371,6 +401,8 @@ export function rankVerifiedTutors<
       courseLabel: preferredCourseLabel ?? tutorCourses[0]?.name,
       badge: tutor.badge,
       rating: tutor.rating,
+      reviewCount: hasRealReviews ? tutor.reviewCount : undefined,
+      ratingSum: realRatingSum,
       hourlyRate: tutor.hourlyRate,
       maxBudget,
       matchingSlotsCount,
