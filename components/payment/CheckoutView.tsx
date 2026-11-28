@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import type { Id } from "@/convex/_generated/dataModel";
 import { OrderSummary } from "@/components/payment/OrderSummary";
 import { ProofForm } from "@/components/payment/ProofForm";
 import { QrisPanel } from "@/components/payment/QrisPanel";
@@ -23,12 +24,18 @@ export function CheckoutView() {
 
 function CheckoutContent({ bookingId }: { bookingId: string }) {
   const router = useRouter();
-  const { user, hydrated, switchDemoRole } = useAuth();
-  const { data, startPayment, submitDemoProof, simulateVerification } =
-    useCheckout(bookingId);
+  const { user, isAdmin, hydrated } = useAuth();
+  const {
+    data,
+    startPayment,
+    submitProof,
+    adminVerifyPayment,
+    createMidtransSnap,
+  } = useCheckout(bookingId);
 
-  const [qrisOpen, setQrisOpen] = useState(false);
+  const [qrisOpen, setQrisOpen] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const hadUserRef = useRef(false);
 
@@ -47,9 +54,7 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
   if (!hydrated) {
     return (
       <Card>
-        <p className="text-sm text-neutral-600">
-          Memuat halaman pembayaran...
-        </p>
+        <p className="text-sm text-[#5B686D]">Memuat halaman pembayaran...</p>
       </Card>
     );
   }
@@ -57,12 +62,11 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
   if (!user) {
     return (
       <Card className="mx-auto max-w-md space-y-3">
-        <h1 className="text-lg font-semibold text-neutral-900">
-          Login Demo Diperlukan
+        <h1 className="text-lg font-semibold text-[#263238]">
+          Login ITS Diperlukan
         </h1>
-        <p className="text-sm text-neutral-600">
-          Masuk dengan akun mahasiswa demo untuk melihat dan melanjutkan
-          checkout.
+        <p className="text-sm text-[#5B686D]">
+          Masuk dengan akun mahasiswa ITS Anda untuk melanjutkan pembayaran.
         </p>
         <Link
           href={`/login?next=${encodeURIComponent(`/pembayaran/${bookingId}`)}`}
@@ -78,11 +82,11 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
     return (
       <EmptyState
         title="Data Pembayaran Tidak Ditemukan"
-        description={`Booking dengan ID "${bookingId}" tidak ditemukan di data demo.`}
+        description={`Booking "${bookingId}" tidak ditemukan atau bukan milik akun Anda.`}
         action={
           <div className="flex flex-wrap gap-2">
-            <Link href="/chat" className={buttonClasses()}>
-              Buka Chat
+            <Link href="/sesi" className={buttonClasses()}>
+              Lihat Sesi Saya
             </Link>
             <Link href="/cari" className={buttonClasses({ variant: "outline" })}>
               Cari Tutor
@@ -93,25 +97,30 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
     );
   }
 
-  const { booking, payment, learner } = data;
+  const { booking, payment, paymentConfig } = data;
   const isOwnerLearner = user.id === booking.learnerId;
 
-  if (booking.status === "offered" || booking.status === "declined") {
+  if (
+    booking.status === "offered" ||
+    booking.status === "requested" ||
+    booking.status === "declined" ||
+    booking.status === "cancelled" ||
+    booking.status === "expired"
+  ) {
     return (
       <div className="mx-auto max-w-2xl space-y-4">
         <EmptyState
           title="Checkout Tidak Tersedia"
           description={
-            booking.status === "declined"
-              ? "Tawaran sesi ini telah ditolak dan tidak dapat dibayar."
-              : "Tawaran sesi ini belum diterima oleh mahasiswa. Terima tawaran terlebih dahulu di ruang chat."
+            booking.status === "requested"
+              ? "Permintaan sesi masih menunggu persetujuan tutor. Pembayaran dibuka segera setelah tutor menerima."
+              : booking.status === "offered"
+                ? "Tawaran sesi ini belum diterima. Terima tawaran terlebih dahulu di ruang chat."
+                : `Sesi ini berstatus "${booking.status}" sehingga tidak dapat dibayar.`
           }
           action={
-            <Link
-              href={`/chat/${booking.conversationId}`}
-              className={buttonClasses()}
-            >
-              Kembali ke Chat
+            <Link href={`/sesi/${booking.id}`} className={buttonClasses()}>
+              Lihat Detail Sesi
             </Link>
           }
         />
@@ -119,9 +128,11 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
     );
   }
 
-  const handleOpenQris = () => {
+  const handleOpenQris = async () => {
     setActionError(null);
-    const res = startPayment({ bookingId: booking.id, actorUserId: user.id });
+    setBusy(true);
+    const res = await startPayment();
+    setBusy(false);
     if (!res.ok) {
       setActionError(res.error);
       return;
@@ -129,69 +140,69 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
     setQrisOpen(true);
   };
 
-  const handleSubmitProof = (proofName: string) => {
+  const handleMidtransSnap = async () => {
     setActionError(null);
-    const res = submitDemoProof({
-      bookingId: booking.id,
-      actorUserId: user.id,
-      proofName,
-    });
+    setBusy(true);
+    const res = await createMidtransSnap();
+    setBusy(false);
+    if (!res.ok) {
+      setActionError(res.error);
+      return;
+    }
+    window.open(res.data.redirectUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const handleSubmitProof = async (args: {
+    proofName: string;
+    proofStorageId: Id<"_storage">;
+  }) => {
+    setActionError(null);
+    const res = await submitProof(args);
     if (res.ok) {
       setQrisOpen(false);
     }
     return res;
   };
 
-  const handleSimulateVerification = (decision: "approve" | "reject") => {
+  const handleAdminDecision = async (decision: "approve" | "reject") => {
     setActionError(null);
-    const res = simulateVerification({
-      bookingId: booking.id,
-      decision,
-    });
+    setBusy(true);
+    const res = await adminVerifyPayment(decision);
+    setBusy(false);
     if (!res.ok) {
       setActionError(res.error);
       return;
     }
     if (decision === "approve") {
       setSuccessModalOpen(true);
-    } else {
-      setQrisOpen(true);
     }
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div className="mx-auto max-w-2xl space-y-5 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <Badge variant="outline">Checkout QRIS Statis — Mode Demo</Badge>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-neutral-900">
+          <Badge variant="outline">Pembayaran Aman (Escrow KOLEARA)</Badge>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#263238]">
             Pembayaran Sesi Tutoring
           </h1>
         </div>
         <Link
-          href={`/chat/${booking.conversationId}`}
-          className="text-sm text-neutral-600 underline underline-offset-4 hover:text-neutral-900"
+          href={`/sesi/${booking.id}`}
+          className="text-sm font-medium text-[#3979A5] underline underline-offset-4 hover:text-[#285B7B]"
         >
-          &larr; Kembali ke Chat
+          &larr; Detail Sesi
         </Link>
       </div>
 
       <OrderSummary data={data} />
 
-      {!isOwnerLearner ? (
-        <Card className="space-y-3">
-          <Notice title="Anda sedang berada di akun demo lain" tone="emphasis">
-            Pemesanan ini milik mahasiswa{" "}
-            <strong>{learner.name}</strong>. Beralih ke akun mahasiswa pemesan
-            untuk melakukan aksi pembayaran demo.
-          </Notice>
-          <Button
-            size="sm"
-            onClick={() => switchDemoRole({ targetUserId: learner.id })}
-          >
-            Beralih ke Mahasiswa ({learner.name})
-          </Button>
-        </Card>
+      {booking.paymentDeadlineAt && payment.status === "unpaid" ? (
+        <Notice title="Batas Waktu Pembayaran">
+          Selesaikan pembayaran sebelum{" "}
+          <strong>{formatWibDateTime(booking.paymentDeadlineAt)}</strong> agar
+          slot jadwal tidak dilepas otomatis.
+        </Notice>
       ) : null}
 
       {actionError ? (
@@ -200,51 +211,35 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
         </Notice>
       ) : null}
 
-      {isOwnerLearner && payment.status === "unpaid" ? (
-        !qrisOpen ? (
-          <Card className="space-y-3">
-            <p className="text-sm text-neutral-700">
-              Periksa kembali detail tutor, jadwal WIB, dan total biaya di atas.
-              Klik <strong>Bayar</strong> untuk menampilkan placeholder QRIS
-              demo dan formulir bukti simulasi.
-            </p>
-            <Button fullWidth onClick={handleOpenQris}>
-              Bayar
-            </Button>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            <QrisPanel amount={payment.amount} />
-            <ProofForm
-              defaultFileName={payment.proofName}
-              onSubmitProof={handleSubmitProof}
-            />
-          </div>
-        )
-      ) : null}
-
-      {isOwnerLearner && payment.status === "rejected" ? (
+      {isOwnerLearner &&
+      (payment.status === "unpaid" || payment.status === "rejected") ? (
         <div className="space-y-4">
-          <Notice title="Verifikasi Demo Ditolak" tone="emphasis" role="alert">
-            {payment.rejectionReason ??
-              "Bukti pembayaran demo ditolak. Silakan kirim ulang bukti pembayaran demo."}
-          </Notice>
-          {!qrisOpen ? (
-            <Card className="space-y-3">
-              <p className="text-sm text-neutral-700">
-                Anda dapat mencoba mengunggah ulang bukti pembayaran simulasi.
+          {payment.status === "rejected" ? (
+            <Notice title="Bukti Pembayaran Ditolak" tone="emphasis" role="alert">
+              {payment.rejectionReason ??
+                "Bukti pembayaran sebelumnya ditolak admin. Silakan unggah ulang bukti transfer yang jelas."}
+            </Notice>
+          ) : null}
+
+          {paymentConfig?.midtransEnabled ? (
+            <Card className="space-y-3 rounded-[22px] border-[#8EB4CE] bg-[#F5F9FC]">
+              <p className="text-sm font-semibold text-[#263238]">
+                Pembayaran Otomatis (Midtrans Snap)
               </p>
-              <Button fullWidth onClick={handleOpenQris}>
-                Coba Bayar Ulang (Buka QRIS Demo)
+              <Button fullWidth disabled={busy} onClick={handleMidtransSnap}>
+                {busy ? "Menyiapkan Midtrans..." : "Bayar via Midtrans Snap"}
               </Button>
             </Card>
+          ) : null}
+
+          {!qrisOpen ? (
+            <Button fullWidth disabled={busy} onClick={handleOpenQris}>
+              Tampilkan QRIS KOLEARA
+            </Button>
           ) : (
             <>
-              <QrisPanel amount={payment.amount} />
-              <ProofForm
-                defaultFileName={payment.proofName}
-                onSubmitProof={handleSubmitProof}
-              />
+              <QrisPanel amount={payment.amount} config={paymentConfig} />
+              <ProofForm onSubmitProof={handleSubmitProof} />
             </>
           )}
         </div>
@@ -252,84 +247,91 @@ function CheckoutContent({ bookingId }: { bookingId: string }) {
 
       {payment.status === "pending_verification" ? (
         <div className="space-y-4">
-          <Card className="space-y-3">
+          <Card className="space-y-3 rounded-[22px] border-[#8EB4CE]">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-base font-semibold text-neutral-900">
-                Menunggu Verifikasi Pembayaran
+              <h2 className="text-base font-semibold text-[#263238]">
+                Menunggu Verifikasi Admin KOLEARA
               </h2>
-              <Badge variant="outline">pending_verification</Badge>
+              <Badge variant="outline">Menunggu Verifikasi</Badge>
             </div>
-            <p className="text-sm text-neutral-700">
-              Bukti simulasi telah diterima dengan nama file{" "}
-              <code className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-xs">
-                {payment.proofName ?? "bukti-qris-demo.jpg"}
+            <p className="text-sm text-[#5B686D]">
+              Bukti transfer{" "}
+              <code className="rounded bg-[#F5F9FC] px-1.5 py-0.5 font-mono text-xs text-[#263238]">
+                {payment.proofName ?? "bukti-qris"}
               </code>
               {payment.submittedAt
-                ? ` pada ${formatWibDateTime(payment.submittedAt)}`
-                : ""}
-              . Status belum lunas sampai verifikasi admin selesai.
+                ? ` telah diterima pada ${formatWibDateTime(payment.submittedAt)}`
+                : " telah diterima"}
+              . Halaman ini akan terbarui otomatis segera setelah admin
+              memverifikasi pembayaran Anda.
             </p>
+            {payment.proofUrl ? (
+              <div className="overflow-hidden rounded-xl border border-[#CBD6DE] bg-[#F8FAFB] p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={payment.proofUrl}
+                  alt="Bukti transfer terunggah"
+                  className="mx-auto max-h-60 rounded-lg object-contain"
+                />
+              </div>
+            ) : null}
           </Card>
 
-          <Card className="space-y-3 border-2 border-neutral-800 bg-neutral-50">
-            <div className="space-y-1">
-              <Badge variant="solid">Kontrol Simulasi Demo</Badge>
-              <h3 className="text-sm font-semibold text-neutral-900">
-                Simulasi Keputusan Verifikasi Admin
-              </h3>
-              <p className="text-xs text-neutral-600">
-                Karena tidak ada backend atau dashboard admin pada prototipe
-                ini, gunakan tombol di bawah untuk menguji skenario verifikasi
-                berhasil atau ditolak.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="primary"
-                onClick={() => handleSimulateVerification("approve")}
-              >
-                Simulasikan verifikasi admin
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handleSimulateVerification("reject")}
-              >
-                Simulasikan verifikasi ditolak
-              </Button>
-            </div>
-          </Card>
+          {isAdmin ? (
+            <Card className="space-y-3 rounded-[22px] border-2 border-[#285B7B] bg-[#F5F9FC]">
+              <div className="space-y-1">
+                <Badge variant="solid">Panel Cepat Admin</Badge>
+                <h3 className="text-sm font-semibold text-[#263238]">
+                  Verifikasi Pembayaran QRIS Statis
+                </h3>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={busy}
+                  onClick={() => handleAdminDecision("approve")}
+                >
+                  Setujui &amp; Tandai Lunas
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => handleAdminDecision("reject")}
+                >
+                  Tolak Bukti
+                </Button>
+              </div>
+            </Card>
+          ) : null}
         </div>
       ) : null}
 
       {payment.status === "paid" ? (
-        <Card className="space-y-3">
+        <Card className="space-y-3 rounded-[22px] border-[#3979A5] bg-[#F5F9FC]">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-neutral-900">
-              Pembayaran Selesai (Terverifikasi Demo)
+            <h2 className="text-base font-semibold text-[#263238]">
+              Pembayaran Terverifikasi &amp; Lunas
             </h2>
-            <Badge variant="solid">paid</Badge>
+            <Badge variant="solid">Lunas</Badge>
           </div>
-          <p className="text-sm text-neutral-700">
-            Pemesanan ini sudah berstatus lunas pada Mode Demo
+          <p className="text-sm text-[#5B686D]">
+            Pembayaran selesai diverifikasi
             {payment.verifiedAt
-              ? ` (${formatWibDateTime(payment.verifiedAt)})`
+              ? ` pada ${formatWibDateTime(payment.verifiedAt)}`
               : ""}
-            . Pembayaran ulang dinonaktifkan dan status tetap tersimpan saat
-            halaman dimuat ulang.
+            . Dana ditahan aman oleh KOLEARA sampai sesi selesai dikonfirmasi.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSuccessModalOpen(true)}
-            >
-              Lihat Popup Sukses
-            </Button>
             <Link
-              href={`/chat/${booking.conversationId}`}
+              href={`/sesi/${booking.id}`}
               className={buttonClasses({ size: "sm" })}
             >
-              Kembali ke Chat
+              Buka Detail Sesi (Link &amp; WA)
+            </Link>
+            <Link
+              href={`/chat/${booking.conversationId}`}
+              className={buttonClasses({ variant: "outline", size: "sm" })}
+            >
+              Buka Chat Tutor
             </Link>
           </div>
         </Card>

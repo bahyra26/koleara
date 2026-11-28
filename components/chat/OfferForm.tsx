@@ -18,10 +18,10 @@ type OfferFormProps = {
     courseId: string;
     topic: string;
     startAt: number;
-    priceRaw: string;
+    price: number;
     meetingMode: MeetingMode;
     brief?: string;
-  }) => { ok: boolean; error?: string };
+  }) => Promise<{ ok: boolean; error?: string }>;
   onCancel: () => void;
 };
 
@@ -77,7 +77,7 @@ export function OfferForm({
     }
   };
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setSubmitError(null);
 
@@ -91,17 +91,17 @@ export function OfferForm({
       brief,
     });
 
-    if (!validation.valid || !parsedStartAt) {
+    if (!validation.valid || !parsedStartAt || !validation.price) {
       setErrors(validation.errors);
       return;
     }
 
     setErrors({});
-    const result = onSubmitOffer({
+    const result = await onSubmitOffer({
       courseId,
       topic,
       startAt: parsedStartAt,
-      priceRaw,
+      price: validation.price,
       meetingMode,
       brief,
     });

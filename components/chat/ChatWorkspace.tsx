@@ -11,7 +11,7 @@ import { OfferCard } from "@/components/chat/OfferCard";
 import { OfferForm } from "@/components/chat/OfferForm";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { EmptyState, Notice } from "@/components/ui/Notice";
+import { EmptyState } from "@/components/ui/Notice";
 import { useAuth } from "@/features/auth/useAuth";
 import {
   useConversationDetail,
@@ -24,13 +24,10 @@ type ChatWorkspaceProps = {
 
 export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
   const router = useRouter();
-  const { user, users, hydrated, switchDemoRole } = useAuth();
-  const { conversations } = useConversations(user?.id ?? null);
+  const { user, hydrated } = useAuth();
+  const { conversations } = useConversations();
 
-  const detail = useConversationDetail(
-    activeConversationId ?? "",
-    user?.id ?? null
-  );
+  const detail = useConversationDetail(activeConversationId ?? "");
   const { isParticipant, markRead, messages } = detail;
 
   const [offerFormConvId, setOfferFormConvId] = useState<string | null>(null);
@@ -87,7 +84,7 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
   if (!hydrated) {
     return (
       <Card>
-        <p className="text-sm text-neutral-600">Memuat ruang chat...</p>
+        <p className="text-sm text-[#5B686D]">Memuat ruang chat...</p>
       </Card>
     );
   }
@@ -98,11 +95,11 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
       : "/chat";
     return (
       <Card className="mx-auto max-w-md space-y-3">
-        <h1 className="text-lg font-semibold text-neutral-900">
-          Login Demo Diperlukan
+        <h1 className="text-lg font-semibold text-[#263238]">
+          Login ITS Diperlukan
         </h1>
-        <p className="text-sm text-neutral-600">
-          Masuk dengan akun ITS demo untuk membuka daftar percakapan dan
+        <p className="text-sm text-[#5B686D]">
+          Masuk dengan akun ITS Anda untuk membuka daftar percakapan dan
           mengirim pesan.
         </p>
         <Link
@@ -114,11 +111,6 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
       </Card>
     );
   }
-
-  const handleSwitchUser = (targetUserId: string) => {
-    setOfferFormConvId(null);
-    switchDemoRole({ targetUserId });
-  };
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -133,7 +125,7 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
       return (
         <EmptyState
           title="Pilih Percakapan"
-          description="Pilih salah satu percakapan di sebelah kiri, atau cari tutor terlebih dahulu lalu klik Hubungi Tutor untuk memulai obrolan."
+          description="Pilih salah satu percakapan di sebelah kiri, atau cari tutor terlebih dahulu lalu klik Chat First untuk memulai obrolan."
           action={
             <Link href="/cari" className={buttonClasses()}>
               Cari Tutor
@@ -143,54 +135,25 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
       );
     }
 
+    if (!detail.hydrated) {
+      return (
+        <Card>
+          <p className="text-sm text-[#5B686D]">Memuat pesan percakapan...</p>
+        </Card>
+      );
+    }
+
     if (!detail.conversation || !detail.learner || !detail.tutor) {
       return (
         <EmptyState
           title="Percakapan Tidak Ditemukan"
-          description={`ID percakapan "${activeConversationId}" tidak ditemukan di data demo.`}
+          description="Percakapan tidak ditemukan atau Anda bukan peserta percakapan ini."
           action={
             <Link href="/chat" className={buttonClasses()}>
               Kembali ke Daftar Chat
             </Link>
           }
         />
-      );
-    }
-
-    if (!detail.isParticipant) {
-      return (
-        <Card className="space-y-4">
-          <Notice
-            title="Akun Demo Aktif Bukan Peserta Percakapan Ini"
-            tone="emphasis"
-          >
-            Percakapan ini adalah antara{" "}
-            <strong>{detail.learner.name}</strong> (Mahasiswa) dan{" "}
-            <strong>{detail.tutor.name}</strong> (Tutor). Pilih salah satu peran
-            peserta untuk membuka percakapan ini di Mode Demo.
-          </Notice>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              onClick={() => handleSwitchUser(detail.learner!.id)}
-            >
-              Masuk sebagai Mahasiswa ({detail.learner.name})
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleSwitchUser(detail.tutor!.userId)}
-            >
-              Masuk sebagai Tutor ({detail.tutor.name})
-            </Button>
-            <Link
-              href="/chat"
-              className={buttonClasses({ variant: "outline", size: "sm" })}
-            >
-              Ke Daftar Chat
-            </Link>
-          </div>
-        </Card>
       );
     }
 
@@ -202,19 +165,12 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
     return (
       <section
         aria-label="Ruang percakapan"
-        className="flex flex-col rounded-lg border border-neutral-200 bg-white"
+        className="flex flex-col rounded-2xl border border-[#CBD6DE] bg-white"
       >
         <ChatHeader
           learner={detail.learner}
           tutor={detail.tutor}
           isLearner={detail.isLearner}
-          isTutor={detail.isTutor}
-          onSwitchToPeer={() => {
-            const targetId = detail.isLearner
-              ? detail.tutor!.userId
-              : detail.learner!.id;
-            handleSwitchUser(targetId);
-          }}
         />
 
         <div
@@ -223,7 +179,7 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
           className="max-h-[56vh] min-h-[280px] flex-1 space-y-3 overflow-y-auto p-4"
         >
           {detail.messages.length === 0 ? (
-            <div className="py-12 text-center text-sm text-neutral-500">
+            <div className="py-12 text-center text-sm text-[#5B686D]">
               Belum ada pesan. Mulailah diskusi topik belajar dan jadwal yang
               diinginkan.
             </div>
@@ -240,18 +196,8 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
                     payment={detail.paymentsByBookingId.get(booking.id)}
                     tutorName={detail.tutor!.name}
                     isLearner={detail.isLearner}
-                    onAccept={(bookingId) =>
-                      detail.acceptOffer({
-                        bookingId,
-                        actorUserId: user.id,
-                      })
-                    }
-                    onDecline={(bookingId) =>
-                      detail.declineOffer({
-                        bookingId,
-                        actorUserId: user.id,
-                      })
-                    }
+                    onAccept={(bookingId) => detail.acceptOffer(bookingId)}
+                    onDecline={(bookingId) => detail.declineOffer(bookingId)}
                   />
                 );
               }
@@ -260,7 +206,9 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
                 <MessageBubble
                   key={message.id}
                   message={message}
-                  senderName={senderNameById.get(message.senderId) ?? "Pengguna"}
+                  senderName={
+                    senderNameById.get(message.senderId) ?? "Pengguna"
+                  }
                   isMine={message.senderId === user.id}
                 />
               );
@@ -274,23 +222,12 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
               key={detail.conversation.id}
               tutor={detail.tutor}
               courses={detail.courses}
-              onSubmitOffer={(input) =>
-                detail.createOffer({
-                  conversationId: detail.conversation!.id,
-                  actorUserId: user.id,
-                  courseId: input.courseId,
-                  topic: input.topic,
-                  startAt: input.startAt,
-                  priceRaw: input.priceRaw,
-                  meetingMode: input.meetingMode,
-                  brief: input.brief,
-                })
-              }
+              onSubmitOffer={(input) => detail.createOffer(input)}
               onCancel={() => setOfferFormConvId(null)}
             />
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-2">
-              <p className="text-xs text-neutral-600">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-neutral-200 bg-[#F5F9FC] px-4 py-2">
+              <p className="text-xs text-[#5B686D]">
                 Siap menyepakati jadwal? Kirim kartu tawaran sesi 60 menit ke
                 mahasiswa.
               </p>
@@ -311,13 +248,7 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
               ? `Balas pesan sebagai Tutor (${detail.tutor.name})...`
               : `Tulis pesan untuk ${detail.tutor.name}...`
           }
-          onSend={(content) =>
-            detail.sendMessage({
-              conversationId: detail.conversation!.id,
-              senderId: user.id,
-              content,
-            })
-          }
+          onSend={(content) => detail.sendMessage(content)}
         />
       </section>
     );
@@ -334,8 +265,6 @@ export function ChatWorkspace({ activeConversationId }: ChatWorkspaceProps) {
           conversations={conversations}
           activeConversationId={activeConversationId}
           currentUser={user}
-          allUsers={users}
-          onSwitchUser={handleSwitchUser}
         />
       </div>
       <div

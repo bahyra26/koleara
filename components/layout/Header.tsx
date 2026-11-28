@@ -7,20 +7,24 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/features/auth/useAuth";
 import { useConversations } from "@/features/chat/useChat";
 
-const NAV_ITEMS = [
+const PUBLIC_NAV_ITEMS = [
   { label: "Home", href: "/" },
   { label: "About", href: "/#about" },
   { label: "How It Works", href: "/#how-it-works" },
   { label: "FAQ", href: "/#faq" },
 ] as const;
 
+type NavItem = { label: string; href: string };
+
 function HeaderBar({
   activePathname,
+  navItems,
   rightSlot,
   mobileButton,
   mobileDrawer,
 }: {
   activePathname: string | null;
+  navItems: readonly NavItem[];
   rightSlot: ReactNode;
   mobileButton?: ReactNode;
   mobileDrawer?: ReactNode;
@@ -50,8 +54,11 @@ function HeaderBar({
           aria-label="Main navigation"
           className="site-navigation hidden items-center gap-6 md:flex"
         >
-          {NAV_ITEMS.map((item) => {
-            const active = item.href === "/" && activePathname === "/";
+          {navItems.map((item) => {
+            const active =
+              item.href === "/"
+                ? activePathname === "/"
+                : Boolean(activePathname?.startsWith(item.href));
             return (
               <Link
                 key={item.label}
@@ -100,19 +107,36 @@ function GuestAuthLinks() {
 }
 
 export function HeaderFallback() {
-  return <HeaderBar activePathname={null} rightSlot={<GuestAuthLinks />} />;
+  return (
+    <HeaderBar
+      activePathname={null}
+      navItems={PUBLIC_NAV_ITEMS}
+      rightSlot={<GuestAuthLinks />}
+    />
+  );
 }
 
 export function Header() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const { totalUnread } = useConversations(user?.id ?? null);
+  const { user, isAdmin, isTutor, logout } = useAuth();
+  const { totalUnread } = useConversations();
   const [menuOpenPath, setMenuOpenPath] = useState<string | null>(null);
   const mobileMenuOpen = menuOpenPath === pathname;
 
-  const handleLogout = () => {
-    logout();
+  const navItems: NavItem[] = user
+    ? [
+        { label: "Find Tutor", href: "/cari" },
+        { label: "My Sessions", href: "/sesi" },
+        isTutor
+          ? { label: "Tutor Dashboard", href: "/dashboard-tutor" }
+          : { label: "Become Tutor", href: "/jadi-tutor" },
+        ...(isAdmin ? [{ label: "Admin", href: "/admin" }] : []),
+      ]
+    : [...PUBLIC_NAV_ITEMS];
+
+  const handleLogout = async () => {
+    await logout();
     setMenuOpenPath(null);
     router.push("/");
   };
@@ -120,6 +144,7 @@ export function Header() {
   return (
     <HeaderBar
       activePathname={pathname}
+      navItems={navItems}
       rightSlot={
         user ? (
           <>
@@ -134,9 +159,13 @@ export function Header() {
                 </span>
               ) : null}
             </Link>
-            <span className="max-w-[140px] truncate text-[14px] font-medium text-[#6E6E73]">
+            <Link
+              href="/onboarding"
+              className="max-w-[140px] truncate text-[14px] font-medium text-[#5B686D] hover:text-[#3979A5]"
+              title="Edit profil"
+            >
               {user.name}
-            </span>
+            </Link>
             <button
               type="button"
               onClick={handleLogout}
@@ -155,7 +184,9 @@ export function Header() {
           aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
           aria-expanded={mobileMenuOpen}
           aria-controls="mobile-navigation"
-          onKeyDown={(event) => { if (event.key === "Escape") setMenuOpenPath(null); }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setMenuOpenPath(null);
+          }}
           onClick={() => setMenuOpenPath(mobileMenuOpen ? null : pathname)}
           className="site-menu-toggle inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#E3E7E9] px-3.5 text-[14px] font-semibold text-[#263238] transition-colors hover:bg-[#F5F5F7] active:bg-[#EAECEF] md:hidden"
         >
@@ -182,10 +213,26 @@ export function Header() {
       }
       mobileDrawer={
         mobileMenuOpen ? (
-          <div id="mobile-navigation" onKeyDown={(event) => { if (event.key === "Escape") { setMenuOpenPath(null); document.querySelector<HTMLButtonElement>('[aria-controls="mobile-navigation"]')?.focus(); } }} className="site-mobile-menu border-b border-[#EAEAEA] bg-white px-5 pb-5 pt-2 shadow-sm sm:px-8 md:hidden">
+          <div
+            id="mobile-navigation"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setMenuOpenPath(null);
+                document
+                  .querySelector<HTMLButtonElement>(
+                    '[aria-controls="mobile-navigation"]'
+                  )
+                  ?.focus();
+              }
+            }}
+            className="site-mobile-menu border-b border-[#EAEAEA] bg-white px-5 pb-5 pt-2 shadow-sm sm:px-8 md:hidden"
+          >
             <nav aria-label="Mobile navigation" className="flex flex-col gap-1">
-              {NAV_ITEMS.map((item) => {
-                const active = item.href === "/" && pathname === "/";
+              {navItems.map((item) => {
+                const active =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : Boolean(pathname?.startsWith(item.href));
                 return (
                   <Link
                     key={item.label}
@@ -217,6 +264,13 @@ export function Header() {
                         {totalUnread}
                       </span>
                     ) : null}
+                  </Link>
+                  <Link
+                    href="/onboarding"
+                    onClick={() => setMenuOpenPath(null)}
+                    className="inline-flex min-h-11 items-center rounded-xl px-3 text-[15px] font-medium text-[#5B686D]"
+                  >
+                    Edit Profil ITS
                   </Link>
                   <button
                     type="button"

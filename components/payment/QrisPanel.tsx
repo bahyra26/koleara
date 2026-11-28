@@ -1,70 +1,74 @@
+"use client";
+
+import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Notice } from "@/components/ui/Notice";
+import type { PaymentConfig } from "@/lib/contracts";
 import { formatIdr } from "@/lib/formatters";
 
 type QrisPanelProps = {
   amount: number;
+  config?: PaymentConfig | null;
 };
 
-export function QrisPanel({ amount }: QrisPanelProps) {
+export function QrisPanel({ amount, config }: QrisPanelProps) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const merchantName = config?.merchantName || "KOLEARA ITS";
+  const qrisUrl = config?.qrisImageUrl || "/qris-koleara.png";
+  const instructions =
+    config?.instructions ||
+    "Scan QRIS KOLEARA menggunakan e-wallet atau mobile banking Anda, masukkan nominal tepat sesuai tagihan, lalu unggah bukti transfer di bawah.";
+
   return (
-    <Card className="space-y-4">
+    <Card className="space-y-4 rounded-[22px] border-[#8EB4CE]">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-neutral-900">
-          Pembayaran QRIS Statis (Simulasi)
+        <h2 className="text-base font-semibold text-[#263238]">
+          Pembayaran QRIS — {merchantName}
         </h2>
-        <Badge variant="solid">QRIS DEMO — JANGAN TRANSFER</Badge>
+        <Badge variant="solid">QRIS Statis KOLEARA</Badge>
       </div>
 
-      <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed border-neutral-400 bg-neutral-50 p-6 text-center">
-        <div
-          role="img"
-          aria-label="Placeholder non-payable bertuliskan QRIS DEMO JANGAN TRANSFER"
-          className="relative flex h-52 w-52 flex-col items-center justify-center rounded border-2 border-neutral-800 bg-white p-4"
-        >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-3 grid grid-cols-3 grid-rows-3 gap-2 opacity-20"
-          >
-            <div className="border-2 border-neutral-900" />
-            <div className="border border-dashed border-neutral-600" />
-            <div className="border-2 border-neutral-900" />
-            <div className="border border-dashed border-neutral-600" />
-            <div className="border border-neutral-900" />
-            <div className="border border-dashed border-neutral-600" />
-            <div className="border-2 border-neutral-900" />
-            <div className="border border-dashed border-neutral-600" />
-            <div className="border border-dashed border-neutral-600" />
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-[#CBD6DE] bg-[#F5F9FC] p-5 text-center">
+        {!imgFailed ? (
+          <div className="overflow-hidden rounded-2xl border border-[#5B8FB3] bg-white p-3 shadow-xs">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={qrisUrl}
+              alt={`QRIS ${merchantName}`}
+              onError={() => setImgFailed(true)}
+              className="h-64 w-64 object-contain sm:h-72 sm:w-72"
+            />
           </div>
-          <p className="relative z-10 rounded bg-neutral-900 px-2.5 py-1 text-xs font-bold tracking-wide text-white">
-            QRIS DEMO
-          </p>
-          <p className="relative z-10 mt-2 text-xs font-bold text-neutral-900">
-            JANGAN TRANSFER
-          </p>
-          <p className="relative z-10 mt-1 text-[11px] text-neutral-600">
-            Placeholder non-scannable (bukan kode QR pembayaran nyata)
-          </p>
-        </div>
+        ) : (
+          <div className="flex h-60 w-60 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#8EB4CE] bg-white p-4 text-center">
+            <p className="text-sm font-semibold text-[#285B7B]">
+              Gambar QRIS Belum Diunggah
+            </p>
+            <p className="mt-1.5 text-xs text-[#5B686D]">
+              Admin dapat mengunggah foto QRIS statis tim melalui halaman{" "}
+              <strong>/admin</strong> atau menaruh file di{" "}
+              <code>public/qris-koleara.png</code>.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-1">
-          <p className="text-xs uppercase tracking-wide text-neutral-500">
-            Nominal yang harus diinput manual pada QRIS statis nyata
+          <p className="text-xs font-medium uppercase tracking-wide text-[#5B686D]">
+            Nominal yang harus dibayar (input manual)
           </p>
-          <p className="text-xl font-bold text-neutral-900">
+          <p className="text-2xl font-bold text-[#263238]">
             {formatIdr(amount)}
           </p>
+          {config?.accountInfo ? (
+            <p className="text-xs text-[#5B686D]">{config.accountInfo}</p>
+          ) : null}
         </div>
       </div>
 
-      <Notice title="Penjelasan Alur QRIS Statis">
-        Pada sistem nyata dengan QRIS statis, nominal tidak terisi otomatis —
-        pengguna harus memasukkan nominal{" "}
-        <strong>{formatIdr(amount)}</strong> secara manual lalu mengunggah bukti
-        transfer agar diverifikasi manual oleh admin. Di prototipe frontend ini,
-        kode di atas sengaja tidak dapat dipindai dan tidak terhubung ke bank
-        atau payment gateway mana pun.
+      <Notice title="Cara Pembayaran & Escrow Aman">
+        {instructions} Dana akan <strong>ditahan oleh KOLEARA</strong> dan baru
+        diteruskan ke tutor setelah sesi selesai dikonfirmasi.
       </Notice>
     </Card>
   );

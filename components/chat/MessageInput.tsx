@@ -5,18 +5,21 @@ import { Button } from "@/components/ui/Button";
 
 type MessageInputProps = {
   placeholder: string;
-  onSend: (text: string) => { ok: boolean; error?: string };
+  onSend: (text: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 export function MessageInput({ placeholder, onSend }: MessageInputProps) {
   const inputId = useId();
   const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submitMessage = () => {
+  const submitMessage = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    const res = onSend(trimmed);
+    if (!trimmed || sending) return;
+    setSending(true);
+    const res = await onSend(trimmed);
+    setSending(false);
     if (!res.ok) {
       setError(res.error ?? "Gagal mengirim pesan.");
       return;

@@ -1,78 +1,107 @@
 "use client";
 
 import { useState, type ChangeEvent, type FormEvent } from "react";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
 import { Notice } from "@/components/ui/Notice";
+import { useAuth } from "@/features/auth/useAuth";
 
 type ProofFormProps = {
-  defaultFileName?: string;
-  onSubmitProof: (proofName: string) => { ok: boolean; error?: string };
+  onSubmitProof: (args: {
+    proofName: string;
+    proofStorageId: Id<"_storage">;
+  }) => Promise<{ ok: boolean; error?: string }>;
 };
 
-export function ProofForm({ defaultFileName, onSubmitProof }: ProofFormProps) {
-  const [proofName, setProofName] = useState(
-    defaultFileName || "bukti-qris-demo.jpg"
-  );
+export function ProofForm({ onSubmitProof }: ProofFormProps) {
+  const { uploadFile } = useAuth();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // Only read synthetic filename metadata; never read or persist file bytes
-      setProofName(file.name);
-      setError(null);
+    const file = event.target.files?.[0] ?? null;
+    setSelectedFile(file);
+    setError(null);
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
+    if (file && file.type.startsWith("image/")) {
+      setPreviewUrl(URL.createObjectURL(file));
     }
   };
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
-    const res = onSubmitProof(proofName.trim() || "bukti-qris-demo.jpg");
+
+    if (!selectedFile) {
+      setError("Pilih gambar atau PDF bukti transfer QRIS terlebih dahulu.");
+      return;
+    }
+
+    setSubmitting(true);
+    const uploaded = await uploadFile(selectedFile);
+    if (!uploaded.ok) {
+      setSubmitting(false);
+      setError(uploaded.error);
+      return;
+    }
+
+    const res = await onSubmitProof({
+      proofName: uploaded.data.fileName,
+      proofStorageId: uploaded.data.storageId,
+    });
+    setSubmitting(false);
+
     if (!res.ok) {
-      setError(res.error ?? "Gagal mengirim bukti demo.");
+      setError(res.error ?? "Gagal mengirim bukti pembayaran.");
     }
   };
 
   return (
-    <Card>
+    <Card className="rounded-[22px] border-[#CBD6DE]">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-neutral-900">
-            Kirim Bukti Pembayaran (Simulasi Demo)
+          <h3 className="text-sm font-semibold text-[#263238]">
+            Unggah Bukti Transfer QRIS
           </h3>
-          <p className="mt-0.5 text-xs text-neutral-600">
-            Anda dapat menggunakan nama file sintetik atau memilih file contoh.
-            Prototipe ini hanya menyimpan nama file di state lokal dan tidak
-            mengunggah atau menyimpan isi file.
+          <p className="mt-0.5 text-xs text-[#5B686D]">
+            Unggah screenshot bukti pembayaran (JPG, PNG, WebP, atau PDF, maks.
+            5 MB). Admin KOLEARA akan memverifikasi pembayaran Anda.
           </p>
         </div>
 
-        <Input
-          id="proof-filename"
-          label="Nama File Bukti Demo (Opsional)"
-          value={proofName}
-          onChange={(e) => setProofName(e.target.value)}
-          placeholder="bukti-qris-demo.jpg"
-          helperText="Kosongkan untuk memakai nama standar bukti-qris-demo.jpg."
-        />
-
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <label
             htmlFor="proof-file-picker"
-            className="text-sm font-medium text-neutral-900"
+            className="text-sm font-medium text-[#263238]"
           >
-            Pilih File Contoh (Opsional — Hanya Membaca Nama File)
+            File Bukti Pembayaran
           </label>
           <input
             id="proof-file-picker"
             type="file"
             accept="image/*,.pdf"
             onChange={handleFileChange}
-            className="block w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs text-neutral-700 file:mr-3 file:rounded file:border-0 file:bg-neutral-200 file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-neutral-900 hover:file:bg-neutral-300"
+            required
+            className="block w-full rounded-xl border border-[#CBD6DE] bg-white px-3 py-2 text-xs text-[#263238] file:mr-3 file:rounded-lg file:border-0 file:bg-[#EAF2F7] file:px-3 file:py-1.5 file:text-xs font-medium file:text-[#285B7B] hover:file:bg-[#DCEAF3]"
           />
         </div>
+
+        {previewUrl ? (
+          <div className="overflow-hidden rounded-xl border border-[#CBD6DE] bg-[#F8FAFB] p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt="Preview bukti transfer"
+              className="mx-auto max-h-56 rounded-lg object-contain"
+            />
+          </div>
+        ) : null}
 
         {error ? (
           <Notice tone="emphasis" role="alert">
@@ -80,8 +109,14 @@ export function ProofForm({ defaultFileName, onSubmitProof }: ProofFormProps) {
           </Notice>
         ) : null}
 
-        <Button type="submit" fullWidth>
-          Kirim Bukti Pembayaran (Demo)
+        <Button
+          type="submit"
+          fullWidth
+          disabled={!selectedFile || submitting}
+        >
+          {submitting
+            ? "Mengunggah Bukti Transfer..."
+            : "Kirim Bukti Pembayaran"}
         </Button>
       </form>
     </Card>

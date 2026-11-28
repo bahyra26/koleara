@@ -2,10 +2,13 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { mapTutorDoc, mapUserDoc, resolveActorUser } from "./lib/auth";
 import {
+  bookingObjectValidator,
   conversationObjectValidator,
+  courseObjectValidator,
   isValidAppId,
   MAX_MESSAGE_LENGTH,
   messageObjectValidator,
+  paymentObjectValidator,
   serviceResultValidator,
   tutorObjectValidator,
   userObjectValidator,
@@ -526,5 +529,174 @@ export const markRead = mutation({
       }
     }
     return { ok: true };
+  },
+});
+
+export const getConversationDetail = query({
+  args: {
+    conversationId: v.string(),
+    sessionToken: v.optional(v.string()),
+    userId: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.object({
+      conversation: conversationObjectValidator,
+      learner: userObjectValidator,
+      tutor: tutorObjectValidator,
+      isLearner: v.boolean(),
+      isTutor: v.boolean(),
+      messages: v.array(messageObjectValidator),
+      bookings: v.array(bookingObjectValidator),
+      payments: v.array(paymentObjectValidator),
+      courses: v.array(courseObjectValidator),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const actor = await resolveActorUser(ctx, {
+      sessionToken: args.sessionToken,
+      fallbackUserId: args.userId,
+    });
+    if (!actor) return null;
+
+    const conversation = await ctx.db
+      .query("conversations")
+      .withIndex("by_appId", (q) => q.eq("appId", args.conversationId))
+      .first();
+    if (!conversation) return null;
+
+    const [learner, tutor] = await Promise.all([
+      ctx.db
+        .query("users")
+        .withIndex("by_appId", (q) => q.eq("appId", conversation.learnerId))
+        .first(),
+      ctx.db
+        .query("tutors")
+        .withIndex("by_appId", (q) => q.eq("appId", conversation.tutorId))
+        .first(),
+    ]);
+    if (!learner || !tutor) return null;
+
+    const isLearner = conversation.learnerId === actor.appId;
+    const isTutor = tutor.userId === actor.appId;
+    if (!isLearner && !isTutor) return null;
+
+    const [messagesDesc, bookingRows, courseRows] = await Promise.all([
+      ctx.db
+        .query("messages")
+        .withIndex("by_conversationId_and_createdAt", (q) =>
+          q.eq("conversationId", conversation.appId),
+        )
+        .order("desc")
+        .take(200),
+      ctx.db
+        .query("bookings")
+        .withIndex("by_conversationId", (q) =>
+          q.eq("conversationId", conversation.appId),
+        )
+        .take(50),
+      ctx.db.query("courses").take(50),
+    ]);
+
+    const paymentRows = await Promise.all(
+      bookingRows.map((b) =>
+        ctx.db
+          .query("payments")
+          .withIndex("by_bookingId", (q) => q.eq("bookingId", b.appId))
+          .first(),
+      ),
+    );
+
+    const payments = await Promise.all(
+      paymentRows
+        .filter((p): p is NonNullable<typeof p> => Boolean(p))
+        .map(async (p) => ({
+          id: p.appId,
+          bookingId: p.bookingId,
+          amount: p.amount,
+          status: p.status,
+          paymentMethod: p.paymentMethod,
+          proofName: p.proofName,
+          proofStorageId: p.proofStorageId,
+          proofUrl: p.proofStorageId
+            ? ((await ctx.storage.getUrl(p.proofStorageId)) ?? undefined)
+            : undefined,
+          midtransOrderId: p.midtransOrderId,
+          midtransTransactionId: p.midtransTransactionId,
+          midtransSnapToken: p.midtransSnapToken,
+          midtransRedirectUrl: p.midtransRedirectUrl,
+          submittedAt: p.submittedAt,
+          verifiedAt: p.verifiedAt,
+          paidAt: p.paidAt,
+          refundedAt: p.refundedAt,
+          rejectionReason: p.rejectionReason,
+        })),
+    );
+
+    return {
+      conversation: {
+        id: conversation.appId,
+        learnerId: conversation.learnerId,
+        tutorId: conversation.tutorId,
+        lastMessageAt: conversation.lastMessageAt,
+      },
+      learner: await mapUserDoc(ctx, learner, { includePrivate: false }),
+      tutor: await mapTutorDoc(ctx, tutor),
+      isLearner,
+      isTutor,
+      messages: messagesDesc.reverse().map((m) => ({
+        id: m.appId,
+        conversationId: m.conversationId,
+        senderId: m.senderId,
+        type: m.type,
+        content: m.content,
+        bookingId: m.bookingId,
+        createdAt: m.createdAt,
+        readAt: m.readAt,
+      })),
+      bookings: bookingRows.map((b) => ({
+        id: b.appId,
+        conversationId: b.conversationId,
+        learnerId: b.learnerId,
+        tutorId: b.tutorId,
+        courseId: b.courseId,
+        topic: b.topic,
+        startAt: b.startAt,
+        durationMinutes: b.durationMinutes,
+        sessionCount: b.sessionCount,
+        price: b.price,
+        meetingMode: b.meetingMode,
+        brief: b.brief,
+        difficultyTier: b.difficultyTier,
+        diagnosticNotes: b.diagnosticNotes,
+        agreedNoJoki: b.agreedNoJoki,
+        meetingLink:
+          b.status === "paid" ||
+          b.status === "tutor_marked_done" ||
+          b.status === "completed"
+            ? b.meetingLink
+            : undefined,
+        status: b.status,
+        escrowStatus: b.escrowStatus,
+        declineReason: b.declineReason,
+        paymentDeadlineAt: b.paymentDeadlineAt,
+        acceptedAt: b.acceptedAt,
+        paidAt: b.paidAt,
+        tutorMarkedDoneAt: b.tutorMarkedDoneAt,
+        completedAt: b.completedAt,
+        cancelledAt: b.cancelledAt,
+        cancelledBy: b.cancelledBy,
+        createdAt: b.createdAt,
+      })),
+      payments,
+      courses: courseRows.map((c) => ({
+        id: c.appId,
+        name: c.name,
+        code: c.code,
+        description: c.description,
+        aliases: c.aliases,
+        topics: c.topics,
+      })),
+    };
   },
 });

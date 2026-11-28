@@ -1,96 +1,148 @@
 "use client";
 
-import { useMemo } from "react";
-import type { TutorSearchFilters } from "@/lib/contracts";
-import { courseService, tutorService } from "@/lib/mock";
-import {
-  useDemoHydrated,
-  useDemoState,
-} from "@/features/demo/DemoStoreProvider";
+import { useCallback, useMemo, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import type {
+  Course,
+  LanguageCode,
+  TutorLocation,
+  TutorSearchFilters,
+  TutorSearchResult,
+} from "@/lib/contracts";
+import { useAuth } from "@/features/auth/useAuth";
 
-export function useCourses() {
-  const state = useDemoState();
-  return useMemo(() => state.courses, [state.courses]);
+export function useCourses(): Course[] {
+  const courses = useQuery(api.tutors.listCourses, {});
+  return useMemo(() => courses ?? [], [courses]);
 }
 
 export function useTutorSearch(filters: TutorSearchFilters) {
-  const state = useDemoState();
-  const hydrated = useDemoHydrated();
-  const { query, courseId, topic, maxBudget, scheduleQuery, location } = filters;
+  const coursesQuery = useQuery(api.tutors.listCourses, {});
+  const topicsQuery = useQuery(api.tutors.getTopics, {
+    ...(filters.courseId ? { courseId: filters.courseId } : {}),
+  });
+  const searchQuery = useQuery(api.tutors.searchTutors, {
+    ...(filters.query ? { query: filters.query } : {}),
+    ...(filters.courseId ? { courseId: filters.courseId } : {}),
+    ...(filters.topic ? { topic: filters.topic } : {}),
+    ...(filters.maxBudget !== undefined ? { maxBudget: filters.maxBudget } : {}),
+    ...(filters.scheduleQuery ? { scheduleQuery: filters.scheduleQuery } : {}),
+    ...(filters.location ? { location: filters.location } : {}),
+    ...(filters.language ? { language: filters.language } : {}),
+  });
 
-  const results = useMemo(() => {
-    void state.tutors;
-    void state.courses;
-    return tutorService.search({
-      query,
-      courseId,
-      topic,
-      maxBudget,
-      scheduleQuery,
-      location,
-    });
-  }, [
-    state.tutors,
-    state.courses,
-    query,
-    courseId,
-    topic,
-    maxBudget,
-    scheduleQuery,
-    location,
-  ]);
-
-  const topics = useMemo(() => {
-    void state.courses;
-    return courseService.getTopics(courseId || undefined);
-  }, [state.courses, courseId]);
+  const hydrated =
+    coursesQuery !== undefined &&
+    topicsQuery !== undefined &&
+    searchQuery !== undefined;
 
   return {
     hydrated,
-    courses: state.courses,
-    topics,
-    results,
+    courses: coursesQuery ?? [],
+    topics: topicsQuery ?? [],
+    results: (searchQuery ?? []) as TutorSearchResult[],
   };
 }
 
 export function useTutorProfile(tutorId: string) {
-  const state = useDemoState();
-  const hydrated = useDemoHydrated();
+  const tutorQuery = useQuery(
+    api.tutors.getTutorById,
+    tutorId ? { tutorId } : "skip"
+  );
+  const coursesQuery = useQuery(api.tutors.listCourses, {});
+  const reviewsQuery = useQuery(
+    api.reviews.listTutorReviews,
+    tutorId ? { tutorId, limit: 20 } : "skip"
+  );
 
-  const tutor = useMemo(() => {
-    void state.tutors;
-    return tutorService.getById(tutorId);
-  }, [state.tutors, tutorId]);
+  // Stable 14-day window rounded to the hour so Convex query args stay memoized
+  const [windowBounds] = useState(() => {
+    const hourMs = 60 * 60 * 1000;
+    const nowHour = Math.floor(Date.now() / hourMs) * hourMs;
+    return {
+      fromMs: nowHour,
+      toMs: nowHour + 14 * 24 * hourMs,
+    };
+  });
 
-  const courses = useMemo(() => {
-    if (!tutor) return [];
-    const byId = new Map(state.courses.map((c) => [c.id, c]));
-    return tutor.courseIds
-      .map((id) => byId.get(id))
-      .filter((c): c is NonNullable<typeof c> => Boolean(c));
-  }, [tutor, state.courses]);
+  const busySlotsQuery = useQuery(
+    api.bookings.getTutorBusySlots,
+    tutorId
+      ? { tutorId, fromMs: windowBounds.fromMs, toMs: windowBounds.toMs }
+      : "skip"
+  );
+
+  const tutor = tutorQuery ?? null;
+  const courses = useMemo<Course[]>(() => {
+    if (!tutor || !coursesQuery) return [];
+    const byId = new Map<string, Course>(coursesQuery.map((c) => [c.id, c]));
+    const matched: Course[] = [];
+    for (const id of tutor.courseIds) {
+      const course = byId.get(id);
+      if (course) matched.push(course);
+    }
+    return matched;
+  }, [tutor, coursesQuery]);
 
   return {
-    hydrated,
+    hydrated: tutorQuery !== undefined && coursesQuery !== undefined,
     tutor,
     courses,
+    reviews: reviewsQuery ?? [],
+    busySlots: busySlotsQuery ?? [],
   };
 }
 
-export function useTutorApplications(userId: string | null) {
-  const state = useDemoState();
-  const hydrated = useDemoHydrated();
+export function useTutorApplications() {
+  const { user, sessionToken, hydrated: authHydrated } = useAuth();
+  const coursesQuery = useQuery(api.tutors.listCourses, {});
+  const appsQuery = useQuery(
+    api.tutors.listApplications,
+    user && sessionToken ? { userId: user.id, sessionToken } : "skip"
+  );
+  const submitMutation = useMutation(api.tutors.submitApplication);
 
-  const applications = useMemo(() => {
-    if (!userId) return [];
-    void state.tutorApplications;
-    return tutorService.listApplications(userId);
-  }, [state.tutorApplications, userId]);
+  const submitApplication = useCallback(
+    async (input: {
+      name: string;
+      department?: string;
+      cohort?: number;
+      courseIds: string[];
+      topics: string[];
+      bio: string;
+      hourlyRate: number;
+      teachingMode?: TutorLocation;
+      campusSpots?: string[];
+      languages?: LanguageCode[];
+      slots: string[];
+      proofStorageId?: Id<"_storage">;
+      proofFileName?: string;
+      payoutBankOrWallet?: string;
+      payoutAccountName?: string;
+      payoutAccountNumber?: string;
+    }) => {
+      if (!user || !sessionToken) {
+        return {
+          ok: false as const,
+          code: "UNAUTHORIZED",
+          error: "Silakan login terlebih dahulu.",
+        };
+      }
+      return await submitMutation({
+        sessionToken,
+        userId: user.id,
+        ...input,
+      });
+    },
+    [user, sessionToken, submitMutation]
+  );
 
   return {
-    hydrated,
-    courses: state.courses,
-    applications,
-    submitApplication: tutorService.submitApplication,
+    hydrated: authHydrated && coursesQuery !== undefined,
+    courses: coursesQuery ?? [],
+    applications: appsQuery ?? [],
+    submitApplication,
   };
 }

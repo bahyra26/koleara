@@ -13,13 +13,15 @@ function paymentStatusInfo(status: PaymentStatus): {
 } {
   switch (status) {
     case "paid":
-      return { label: "Lunas (Terverifikasi Demo)", variant: "solid" };
+      return { label: "Lunas & Terverifikasi", variant: "solid" };
     case "pending_verification":
-      return { label: "Menunggu Verifikasi Admin (Demo)", variant: "outline" };
+      return { label: "Menunggu Verifikasi Admin", variant: "outline" };
     case "rejected":
-      return { label: "Verifikasi Ditolak — Bisa Coba Ulang", variant: "outline" };
+      return { label: "Bukti Ditolak — Unggah Ulang", variant: "outline" };
+    case "refunded":
+      return { label: "Refund Diproses", variant: "muted" };
     default:
-      return { label: "Belum Dibayar", variant: "default" };
+      return { label: "Menunggu Pembayaran", variant: "default" };
   }
 }
 
@@ -28,13 +30,13 @@ export function OrderSummary({ data }: OrderSummaryProps) {
   const badge = paymentStatusInfo(payment.status);
 
   return (
-    <Card className="space-y-4">
+    <Card className="space-y-4 rounded-[22px] border-[#CBD6DE]">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-neutral-200 pb-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#5B686D]">
             Ringkasan Pemesanan Sesi
           </p>
-          <h2 className="text-lg font-semibold text-neutral-900">
+          <h2 className="text-lg font-semibold text-[#263238]">
             {course.name} — {booking.topic}
           </h2>
         </div>
@@ -43,34 +45,36 @@ export function OrderSummary({ data }: OrderSummaryProps) {
 
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-xs text-neutral-500">Tutor</dt>
-          <dd className="font-medium text-neutral-900">
+          <dt className="text-xs text-[#5B686D]">Tutor</dt>
+          <dd className="font-medium text-[#263238]">
             {tutor.name} ({tutor.department} ITS)
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-neutral-500">Mata Kuliah</dt>
-          <dd className="font-medium text-neutral-900">
+          <dt className="text-xs text-[#5B686D]">Mata Kuliah</dt>
+          <dd className="font-medium text-[#263238]">
             {course.name} ({course.code})
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-neutral-500">Topik</dt>
-          <dd className="font-medium text-neutral-900">{booking.topic}</dd>
-        </div>
-        <div>
-          <dt className="text-xs text-neutral-500">Jadwal &amp; Durasi</dt>
-          <dd className="font-medium text-neutral-900">
-            {formatWibDateTime(booking.startAt)} ({booking.durationMinutes} menit)
+          <dt className="text-xs text-[#5B686D]">Paket &amp; Durasi</dt>
+          <dd className="font-medium text-[#263238]">
+            {booking.sessionCount ?? 1} sesi × {booking.durationMinutes} menit
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-neutral-500">ID Booking</dt>
-          <dd className="font-mono text-xs text-neutral-700">{booking.id}</dd>
+          <dt className="text-xs text-[#5B686D]">Jadwal Sesi</dt>
+          <dd className="font-medium text-[#263238]">
+            {formatWibDateTime(booking.startAt)}
+          </dd>
         </div>
         <div>
-          <dt className="text-xs text-neutral-500">Mode Pertemuan</dt>
-          <dd className="font-medium text-neutral-900">
+          <dt className="text-xs text-[#5B686D]">ID Booking</dt>
+          <dd className="font-mono text-xs text-[#5B686D]">{booking.id}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-[#5B686D]">Mode Pertemuan</dt>
+          <dd className="font-medium text-[#263238]">
             {booking.meetingMode === "offline_its"
               ? "Tatap Muka (Kampus ITS)"
               : "Online"}
@@ -79,10 +83,10 @@ export function OrderSummary({ data }: OrderSummaryProps) {
       </dl>
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-neutral-200 pt-3">
-        <span className="text-sm font-medium text-neutral-700">
-          Total Pembayaran (Diambil dari Booking)
+        <span className="text-sm font-medium text-[#5B686D]">
+          Total Pembayaran
         </span>
-        <span className="text-2xl font-bold text-neutral-900">
+        <span className="text-2xl font-bold text-[#263238]">
           {formatIdr(payment.amount)}
         </span>
       </div>

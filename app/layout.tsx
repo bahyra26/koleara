@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Geist_Mono, Poppins } from "next/font/google";
 import { Header, HeaderFallback } from "@/components/layout/Header";
-import { DemoStoreProvider } from "@/features/demo/DemoStoreProvider";
+import { KolearaProvider } from "@/features/providers/KolearaProvider";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -87,7 +87,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         className="min-h-full flex flex-col bg-white text-[#262626]"
       >
         <a href="#main-content" className="sr-only fixed top-3 left-3 z-50 rounded-lg bg-white px-5 py-3 text-[#285B7B] shadow-lg focus:not-sr-only">Skip to content</a>
-        <DemoStoreProvider>
+        <KolearaProvider>
           <div className="site-shell flex min-h-svh flex-1 flex-col overflow-x-clip">
             <Suspense fallback={<HeaderFallback />}>
               <Header />
@@ -96,7 +96,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               {children}
             </main>
           </div>
-        </DemoStoreProvider>
+        </KolearaProvider>
       </body>
     </html>
   );

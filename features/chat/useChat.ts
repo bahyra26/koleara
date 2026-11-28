@@ -1,135 +1,202 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import type { Booking, Course, Payment } from "@/lib/contracts";
-import { bookingService, chatService } from "@/lib/mock";
-import {
-  useDemoHydrated,
-  useDemoState,
-} from "@/features/demo/DemoStoreProvider";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Booking, Course, MeetingMode, Payment } from "@/lib/contracts";
+import { useAuth } from "@/features/auth/useAuth";
 
-export function useConversations(userId: string | null) {
-  const state = useDemoState();
-  const hydrated = useDemoHydrated();
+export function useConversations() {
+  const { user, sessionToken, hydrated: authHydrated } = useAuth();
+  const conversationsQuery = useQuery(
+    api.chat.listConversations,
+    user && sessionToken ? { userId: user.id, sessionToken } : "skip"
+  );
+  const getOrCreateMutation = useMutation(api.chat.getOrCreateConversation);
 
-  const conversations = useMemo(() => {
-    if (!userId) return [];
-    void state.conversations;
-    void state.messages;
-    void state.tutors;
-    void state.users;
-    return chatService.listConversations(userId);
-  }, [state.conversations, state.messages, state.tutors, state.users, userId]);
+  const conversations = useMemo(
+    () => conversationsQuery ?? [],
+    [conversationsQuery]
+  );
 
   const totalUnread = useMemo(
     () => conversations.reduce((sum, item) => sum + item.unreadCount, 0),
     [conversations]
   );
 
+  const getOrCreateConversation = useCallback(
+    async (tutorId: string) => {
+      if (!user || !sessionToken) {
+        return {
+          ok: false as const,
+          code: "UNAUTHORIZED",
+          error: "Silakan login terlebih dahulu.",
+        };
+      }
+      return await getOrCreateMutation({
+        sessionToken,
+        learnerId: user.id,
+        tutorId,
+      });
+    },
+    [user, sessionToken, getOrCreateMutation]
+  );
+
   return {
-    hydrated,
+    hydrated: authHydrated && (!user || conversationsQuery !== undefined),
     conversations,
     totalUnread,
-    getOrCreateConversation: chatService.getOrCreateConversation,
+    getOrCreateConversation,
   };
 }
 
-export function useConversationDetail(
-  conversationId: string,
-  activeUserId: string | null
-) {
-  const state = useDemoState();
-  const hydrated = useDemoHydrated();
-
-  const conversation = useMemo(
-    () => state.conversations.find((c) => c.id === conversationId) ?? null,
-    [state.conversations, conversationId]
+export function useConversationDetail(conversationId: string) {
+  const { user, sessionToken, hydrated: authHydrated } = useAuth();
+  const detailQuery = useQuery(
+    api.chat.getConversationDetail,
+    conversationId && user && sessionToken
+      ? { conversationId, sessionToken, userId: user.id }
+      : "skip"
   );
 
-  const learner = useMemo(
-    () =>
-      conversation
-        ? state.users.find((u) => u.id === conversation.learnerId) ?? null
-        : null,
-    [state.users, conversation]
-  );
-
-  const tutor = useMemo(
-    () =>
-      conversation
-        ? state.tutors.find((t) => t.id === conversation.tutorId) ?? null
-        : null,
-    [state.tutors, conversation]
-  );
-
-  const tutorUser = useMemo(
-    () =>
-      tutor ? state.users.find((u) => u.id === tutor.userId) ?? null : null,
-    [state.users, tutor]
-  );
-
-  const messages = useMemo(() => {
-    void state.messages;
-    return chatService.listMessages(conversationId);
-  }, [state.messages, conversationId]);
+  const sendMessageMutation = useMutation(api.chat.sendMessage);
+  const markReadMutation = useMutation(api.chat.markRead);
+  const createOfferMutation = useMutation(api.bookings.createOffer);
+  const acceptOfferMutation = useMutation(api.bookings.acceptOffer);
+  const declineOfferMutation = useMutation(api.bookings.declineOffer);
 
   const bookingsById = useMemo(() => {
     const map = new Map<string, Booking>();
-    for (const booking of state.bookings) {
-      if (booking.conversationId === conversationId) {
-        map.set(booking.id, booking);
-      }
+    for (const b of detailQuery?.bookings ?? []) {
+      map.set(b.id, b);
     }
     return map;
-  }, [state.bookings, conversationId]);
+  }, [detailQuery?.bookings]);
 
   const paymentsByBookingId = useMemo(() => {
     const map = new Map<string, Payment>();
-    for (const payment of state.payments) {
-      map.set(payment.bookingId, payment);
+    for (const p of detailQuery?.payments ?? []) {
+      map.set(p.bookingId, p);
     }
     return map;
-  }, [state.payments]);
+  }, [detailQuery?.payments]);
 
   const coursesById = useMemo(() => {
     const map = new Map<string, Course>();
-    for (const course of state.courses) {
-      map.set(course.id, course);
+    for (const c of detailQuery?.courses ?? []) {
+      map.set(c.id, c);
     }
     return map;
-  }, [state.courses]);
-
-  const isLearner = Boolean(
-    activeUserId && conversation && conversation.learnerId === activeUserId
-  );
-  const isTutor = Boolean(
-    activeUserId && tutor && tutor.userId === activeUserId
-  );
-  const isParticipant = isLearner || isTutor;
+  }, [detailQuery?.courses]);
 
   const markRead = useCallback(() => {
-    if (!activeUserId || !isParticipant) return;
-    chatService.markRead(conversationId, activeUserId);
-  }, [activeUserId, conversationId, isParticipant]);
+    if (!conversationId || !user || !sessionToken || !detailQuery) return;
+    void markReadMutation({
+      sessionToken,
+      conversationId,
+      readerId: user.id,
+    });
+  }, [conversationId, user, sessionToken, detailQuery, markReadMutation]);
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!user || !sessionToken || !conversationId) {
+        return {
+          ok: false as const,
+          code: "UNAUTHORIZED",
+          error: "Silakan login terlebih dahulu.",
+        };
+      }
+      return await sendMessageMutation({
+        sessionToken,
+        conversationId,
+        senderId: user.id,
+        content,
+      });
+    },
+    [user, sessionToken, conversationId, sendMessageMutation]
+  );
+
+  const createOffer = useCallback(
+    async (input: {
+      courseId: string;
+      topic: string;
+      startAt: number;
+      price: number;
+      meetingMode?: MeetingMode;
+      brief?: string;
+    }) => {
+      if (!user || !sessionToken || !conversationId) {
+        return {
+          ok: false as const,
+          code: "UNAUTHORIZED",
+          error: "Silakan login terlebih dahulu.",
+        };
+      }
+      return await createOfferMutation({
+        sessionToken,
+        conversationId,
+        actorUserId: user.id,
+        ...input,
+      });
+    },
+    [user, sessionToken, conversationId, createOfferMutation]
+  );
+
+  const acceptOffer = useCallback(
+    async (bookingId: string) => {
+      if (!user || !sessionToken) {
+        return {
+          ok: false as const,
+          code: "UNAUTHORIZED",
+          error: "Silakan login terlebih dahulu.",
+        };
+      }
+      return await acceptOfferMutation({
+        sessionToken,
+        bookingId,
+        actorUserId: user.id,
+      });
+    },
+    [user, sessionToken, acceptOfferMutation]
+  );
+
+  const declineOffer = useCallback(
+    async (bookingId: string) => {
+      if (!user || !sessionToken) {
+        return {
+          ok: false as const,
+          code: "UNAUTHORIZED",
+          error: "Silakan login terlebih dahulu.",
+        };
+      }
+      return await declineOfferMutation({
+        sessionToken,
+        bookingId,
+        actorUserId: user.id,
+      });
+    },
+    [user, sessionToken, declineOfferMutation]
+  );
 
   return {
-    hydrated,
-    conversation,
-    learner,
-    tutor,
-    tutorUser,
-    messages,
+    hydrated:
+      authHydrated && (!conversationId || !user || detailQuery !== undefined),
+    conversation: detailQuery?.conversation ?? null,
+    learner: detailQuery?.learner ?? null,
+    tutor: detailQuery?.tutor ?? null,
+    messages: detailQuery?.messages ?? [],
     bookingsById,
     paymentsByBookingId,
     coursesById,
-    courses: state.courses,
-    isLearner,
-    isTutor,
-    isParticipant,
+    courses: detailQuery?.courses ?? [],
+    isLearner: detailQuery?.isLearner ?? false,
+    isTutor: detailQuery?.isTutor ?? false,
+    isParticipant: Boolean(detailQuery),
     markRead,
-    sendMessage: chatService.sendMessage,
-    createOffer: bookingService.createOffer,
-    acceptOffer: bookingService.acceptOffer,
-    declineOffer: bookingService.declineOffer,
+    sendMessage,
+    createOffer,
+    acceptOffer,
+    declineOffer,
   };
 }

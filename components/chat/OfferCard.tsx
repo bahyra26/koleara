@@ -14,16 +14,21 @@ type OfferCardProps = {
   payment?: Payment;
   tutorName: string;
   isLearner: boolean;
-  onAccept: (bookingId: string) => { ok: boolean; error?: string };
-  onDecline: (bookingId: string) => { ok: boolean; error?: string };
+  onAccept: (bookingId: string) => Promise<{ ok: boolean; error?: string }>;
+  onDecline: (bookingId: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 function getOfferStatusBadge(
   booking: Booking,
   payment?: Payment
 ): { label: string; variant: "default" | "solid" | "outline" | "muted" } {
-  if (booking.status === "paid" || payment?.status === "paid") {
-    return { label: "Sudah Dibayar (Demo)", variant: "solid" };
+  if (
+    booking.status === "paid" ||
+    booking.status === "completed" ||
+    booking.status === "tutor_marked_done" ||
+    payment?.status === "paid"
+  ) {
+    return { label: "Sudah Dibayar", variant: "solid" };
   }
   if (booking.status === "declined") {
     return { label: "Tawaran Ditolak", variant: "muted" };
@@ -31,13 +36,13 @@ function getOfferStatusBadge(
   if (booking.status === "accepted") {
     if (payment?.status === "pending_verification") {
       return {
-        label: "Menunggu Verifikasi Pembayaran",
+        label: "Menunggu Verifikasi Admin",
         variant: "outline",
       };
     }
     if (payment?.status === "rejected") {
       return {
-        label: "Verifikasi Pembayaran Ditolak",
+        label: "Bukti Ditolak — Unggah Ulang",
         variant: "outline",
       };
     }
@@ -60,22 +65,22 @@ export function OfferCard({
 
   const badge = getOfferStatusBadge(booking, payment);
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     if (busy || booking.status !== "offered") return;
     setBusy(true);
     setError(null);
-    const res = onAccept(booking.id);
+    const res = await onAccept(booking.id);
     if (!res.ok) {
       setError(res.error ?? "Gagal menerima tawaran.");
     }
     setBusy(false);
   };
 
-  const handleDecline = () => {
+  const handleDecline = async () => {
     if (busy || booking.status !== "offered") return;
     setBusy(true);
     setError(null);
-    const res = onDecline(booking.id);
+    const res = await onDecline(booking.id);
     if (!res.ok) {
       setError(res.error ?? "Gagal menolak tawaran.");
     }
@@ -159,8 +164,7 @@ export function OfferCard({
             </>
           ) : (
             <p className="text-xs text-neutral-600">
-              Hanya mahasiswa penerima tawaran yang dapat menerima atau menolak.
-              Ganti ke peran Mahasiswa Demo untuk merespons.
+              Menunggu mahasiswa menerima atau menolak tawaran sesi ini.
             </p>
           )
         ) : null}
@@ -174,29 +178,31 @@ export function OfferCard({
               {payment?.status === "pending_verification"
                 ? "Lihat Status Verifikasi Pembayaran"
                 : payment?.status === "rejected"
-                  ? "Coba Bayar Ulang (QRIS Demo)"
+                  ? "Unggah Ulang Bukti QRIS"
                   : "Lanjut ke Pembayaran"}
             </Link>
           ) : (
             <p className="text-xs text-neutral-600">
               Tawaran diterima mahasiswa.{" "}
               {payment?.status === "pending_verification"
-                ? "Bukti demo sedang menunggu verifikasi."
-                : "Menunggu mahasiswa menyelesaikan pembayaran demo."}
+                ? "Bukti pembayaran sedang menunggu verifikasi admin."
+                : "Menunggu mahasiswa menyelesaikan pembayaran."}
             </p>
           )
         ) : null}
 
-        {booking.status === "paid" ? (
+        {booking.status === "paid" ||
+        booking.status === "tutor_marked_done" ||
+        booking.status === "completed" ? (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-medium text-neutral-800">
-              Pembayaran telah diverifikasi (Mode Demo).
+            <span className="text-xs font-medium text-[#285B7B]">
+              Pembayaran terverifikasi.
             </span>
             <Link
-              href={`/pembayaran/${booking.id}`}
-              className="text-xs font-medium text-neutral-900 underline underline-offset-4"
+              href={`/sesi/${booking.id}`}
+              className="text-xs font-semibold text-[#3979A5] underline underline-offset-4"
             >
-              Lihat Ringkasan Pembayaran
+              Buka Detail Sesi
             </Link>
           </div>
         ) : null}

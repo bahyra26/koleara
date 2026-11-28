@@ -3,6 +3,9 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   TutorChatModal,
   TutorPaymentConfirmModal,
@@ -12,9 +15,10 @@ import {
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useAuth } from "@/features/auth/useAuth";
 import { useConversations } from "@/features/chat/useChat";
+import { usePaymentConfig } from "@/features/payment/usePayment";
 import { useTutorProfile } from "@/features/tutors/useTutors";
-import { formatIdr } from "@/lib/formatters";
-import { bookingService, paymentService } from "@/lib/mock";
+import type { DifficultyTier } from "@/lib/contracts";
+import { formatIdr, resolveNextSlotTimestampWib } from "@/lib/formatters";
 import {
   buildTutorScheduleMatrix,
   formatCoursePillLabel,
@@ -34,12 +38,22 @@ export function TutorProfileView() {
 
 function TutorProfileContent({ tutorId }: { tutorId: string }) {
   const router = useRouter();
-  const { user, hydrated, lastLearner, switchDemoRole } = useAuth();
-  const { tutor, courses } = useTutorProfile(tutorId);
-  const { getOrCreateConversation } = useConversations(user?.id ?? null);
+  const { user, sessionToken, hydrated } = useAuth();
+  const { tutor, courses, reviews, busySlots, hydrated: tutorHydrated } =
+    useTutorProfile(tutorId);
+  const { getOrCreateConversation } = useConversations();
+  const { config: paymentConfig } = usePaymentConfig();
+
+  const createDirectBookingMutation = useMutation(
+    api.bookings.createDirectBooking
+  );
+  const submitProofMutation = useMutation(api.payments.submitDemoProof);
 
   const [sessionCount, setSessionCount] = useState<1 | 4>(1);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [diagnosticNotes, setDiagnosticNotes] = useState("");
+  const [difficultyTier, setDifficultyTier] =
+    useState<DifficultyTier>("basic");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<
     "chat" | "payment" | "qris" | "success" | null
@@ -49,17 +63,31 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
   >(null);
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [submittingBooking, setSubmittingBooking] = useState(false);
   const firstAvailableBtnRef = useRef<HTMLButtonElement | null>(null);
 
-  const scheduleColumns = useMemo(
-    () => (tutor ? buildTutorScheduleMatrix(tutor) : []),
-    [tutor]
-  );
+  const scheduleColumns = useMemo(() => {
+    if (!tutor) return [];
+    const base = buildTutorScheduleMatrix(tutor);
+    return base.map((col) => ({
+      ...col,
+      cells: col.cells.map((cell) => {
+        if (!cell.available) return cell;
+        const startAt = resolveNextSlotTimestampWib(cell.id);
+        if (!startAt) return cell;
+        const endAt = startAt + 60 * 60_000;
+        const isBooked = busySlots.some(
+          (slot) => startAt < slot.endAt && slot.startAt < endAt
+        );
+        return { ...cell, available: !isBooked };
+      }),
+    }));
+  }, [tutor, busySlots]);
 
-  if (!hydrated) {
+  if (!hydrated || !tutorHydrated) {
     return (
       <div className="py-12 text-[15px] font-medium text-[#9AA4A9]">
-        Loading tutor profile...
+        Loading verified tutor profile...
       </div>
     );
   }
@@ -97,22 +125,13 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
     setSelectedSlotId((prev) => (prev === slotId ? null : slotId));
   };
 
-  const handleSwitchToLearner = () => {
+  const handleChatFirst = async () => {
     setFeedback(null);
-    if (lastLearner) {
-      switchDemoRole({ targetUserId: lastLearner.id });
-    } else {
-      switchDemoRole("learner");
-    }
-  };
-
-  const handleChatFirst = () => {
-    setFeedback(null);
-    if (!user) {
+    if (!user || !sessionToken) {
       router.push(`/login?next=${encodeURIComponent(`/tutor/${tutor.id}`)}`);
       return;
     }
-    const result = getOrCreateConversation(user.id, tutor.id);
+    const result = await getOrCreateConversation(tutor.id);
     if (!result.ok) {
       setFeedback(result.error);
       return;
@@ -127,7 +146,7 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
       firstAvailableBtnRef.current?.focus();
       return;
     }
-    if (!user) {
+    if (!user || !sessionToken) {
       router.push(`/login?next=${encodeURIComponent(`/tutor/${tutor.id}`)}`);
       return;
     }
@@ -136,16 +155,31 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
     setActiveModal("payment");
   };
 
-  const handlePayNow = () => {
-    if (!user || !selectedSlotId || !primaryCourse) return;
+  const handlePayNow = async () => {
+    if (!user || !sessionToken || !selectedSlotId || !primaryCourse) return;
     setPaymentError(null);
-    const created = bookingService.createDirectBooking({
+
+    const startAt = resolveNextSlotTimestampWib(selectedSlotId);
+    if (!startAt) {
+      setPaymentError("Selected time slot is invalid.");
+      return;
+    }
+
+    setSubmittingBooking(true);
+    const created = await createDirectBookingMutation({
+      sessionToken,
       actorUserId: user.id,
       tutorId: tutor.id,
       courseId: primaryCourse.id,
-      slotLabel: selectedSlotId,
+      topic: tutor.topics[0] ?? primaryCourse.topics[0] ?? primaryCourse.name,
+      startAt,
       sessionCount,
+      brief: diagnosticNotes.trim() || undefined,
+      difficultyTier,
+      diagnosticNotes: diagnosticNotes.trim() || undefined,
     });
+    setSubmittingBooking(false);
+
     if (!created.ok) {
       setPaymentError(created.error);
       return;
@@ -154,18 +188,25 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
     setActiveModal("qris");
   };
 
-  const handleQrisAutoPaid = () => {
-    if (!user || !activeBookingId) return;
-    const paid = paymentService.completeDemoQris({
+  const handleSubmitQrisProof = async (args: {
+    proofName: string;
+    proofStorageId: Id<"_storage">;
+  }) => {
+    if (!user || !sessionToken || !activeBookingId) {
+      return { ok: false as const, error: "Sesi login tidak valid." };
+    }
+    const submitted = await submitProofMutation({
+      sessionToken,
       bookingId: activeBookingId,
       actorUserId: user.id,
+      proofName: args.proofName,
+      proofStorageId: args.proofStorageId,
     });
-    if (!paid.ok) {
-      setPaymentError(paid.error);
-      setActiveModal("payment");
-      return;
+    if (!submitted.ok) {
+      return { ok: false as const, error: submitted.error };
     }
     setActiveModal("success");
+    return { ok: true as const };
   };
 
   const selectedCell = selectedSlotId
@@ -209,13 +250,18 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
       {/* Hero Tutor Identity Banner */}
       <div className="relative mt-8 rounded-[28px] border border-[#3979A5] bg-[#EAF2F7] px-5 pt-4 pb-6 sm:mt-11 sm:px-9 sm:py-7 lg:px-12">
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-8 lg:gap-10">
-          {/* Breakout Silhouette Avatar + Course Pill */}
           <div className="-mt-12 inline-flex shrink-0 flex-col items-center sm:-mt-14 lg:-mt-16">
             <div className="rounded-full border border-[#3979A5] bg-white p-1.5">
-              <UserAvatar
-                tone={physicsTheme ? "rose" : "blue"}
-                size="xl"
-              />
+              {tutor.avatarUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={tutor.avatarUrl}
+                  alt={tutor.name}
+                  className="h-32 w-32 rounded-full object-cover sm:h-[152px] sm:w-[152px]"
+                />
+              ) : (
+                <UserAvatar tone={physicsTheme ? "rose" : "blue"} size="xl" />
+              )}
             </div>
             <span
               className={`relative z-10 -mt-3.5 inline-flex items-center justify-center rounded-full border border-[#3979A5] px-5 py-1 text-[12.5px] font-medium tracking-tight ${
@@ -228,7 +274,6 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
             </span>
           </div>
 
-          {/* Tutor Name, Department | Cohort, Verification Pill */}
           <div className="min-w-0">
             <h1 className="text-[clamp(1.5rem,3.2vw,2.125rem)] font-semibold leading-tight text-[#263238]">
               {tutor.name}
@@ -237,20 +282,24 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
               {formatDepartmentLabel(tutor.department)} | Class of{" "}
               {tutor.cohort}
             </p>
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center rounded-full bg-[#E8D5D5] px-4 py-1 text-[12px] font-medium text-[#263238] sm:text-[12.5px]">
                 {formatVerificationBadge(tutor.badge)}
               </span>
+              {tutor.languages && tutor.languages.length > 0 ? (
+                <span className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-[12px] font-medium text-[#285B7B]">
+                  {tutor.languages.map((l) => l.toUpperCase()).join(" / ")}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main 2-Column Content: Blush Info Cards + Dark Navy Booking Sidebar */}
+      {/* Main 2-Column Content */}
       <div className="mt-7 grid grid-cols-1 gap-6 lg:mt-8 lg:grid-cols-[minmax(0,1fr)_356px] lg:items-stretch xl:grid-cols-[minmax(0,1fr)_384px] xl:gap-7">
         {/* Left Soft-Blush Container */}
         <div className="flex flex-col justify-between gap-5 rounded-[30px] bg-[#F8EEEE] p-4 sm:p-6">
-          {/* Card 1: About Tutor */}
           <article className="rounded-[22px] border border-[#C98E8E] bg-white p-5 sm:p-6">
             <h2 className="text-[18px] font-semibold text-[#263238] sm:text-[19px]">
               About <span className="text-[#3979A5]">Tutor</span>
@@ -258,10 +307,7 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
             <p className="mt-3 text-[14px] font-medium leading-[1.68] text-[#6C777C] sm:text-[14.5px]">
               {bioSegments.map((seg, idx) =>
                 seg.highlight ? (
-                  <strong
-                    key={idx}
-                    className="font-semibold text-[#3979A5]"
-                  >
+                  <strong key={idx} className="font-semibold text-[#3979A5]">
                     {seg.text}
                   </strong>
                 ) : (
@@ -271,15 +317,13 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
             </p>
           </article>
 
-          {/* Bottom Pair: Sub Topics + Available Times */}
           <div className="grid grid-cols-1 gap-5 md:grid-cols-12">
-            {/* Card 2: Sub Topics */}
             <article className="rounded-[22px] border border-[#C98E8E] bg-white p-5 sm:p-6 md:col-span-5">
               <h2 className="text-[18px] font-semibold text-[#263238] sm:text-[19px]">
                 Sub <span className="text-[#3979A5]">Topics</span>
               </h2>
               <ol className="mt-4 space-y-3.5">
-                {tutor.topics.slice(0, 4).map((topic, index) => (
+                {tutor.topics.slice(0, 5).map((topic, index) => (
                   <li key={topic} className="flex items-center gap-3">
                     <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C98E8E] bg-[#FCF6F6] text-[12px] font-semibold text-[#263238]">
                       {index + 1}
@@ -292,7 +336,6 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
               </ol>
             </article>
 
-            {/* Card 3: Available Times */}
             <article className="rounded-[22px] border border-[#C98E8E] bg-white p-5 sm:p-6 md:col-span-7">
               <h2 className="text-[18px] font-semibold text-[#263238] sm:text-[19px]">
                 Available <span className="text-[#3979A5]">Times</span>
@@ -335,7 +378,7 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
                             onClick={() => handleSelectSlot(cell.id)}
                             className={`inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-[11px] px-2 text-[12.5px] font-semibold transition-[background-color,border-color,color,transform,box-shadow] duration-150 active:translate-y-px ${
                               selected
-                                ? "border-2 border-[#285B7B] bg-[#D99C9C] text-white shadow-xs"
+                                ? "border-2 border-[#285B7B] bg-[#3979A5] text-white shadow-xs"
                                 : "border border-[#3979A5] bg-white text-[#1E4E70] hover:bg-[#EAF2F7]"
                             }`}
                           >
@@ -357,7 +400,6 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
           className="flex flex-col justify-between rounded-[30px] bg-[#215273] p-6 text-white sm:p-7"
         >
           <div>
-            {/* Rate */}
             <p className="text-[28px] font-bold tracking-tight text-white sm:text-[32px]">
               {formatIdr(tutor.hourlyRate)}{" "}
               <span className="text-[18px] font-normal text-white/85 sm:text-[20px]">
@@ -365,7 +407,6 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
               </span>
             </p>
 
-            {/* Session Package Buttons */}
             <div
               role="group"
               aria-label="Session package"
@@ -387,9 +428,7 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
                     }`}
                   >
                     <span className="font-normal">{count} session</span>
-                    <span className="font-semibold">
-                      {formatIdr(price)}
-                    </span>
+                    <span className="font-semibold">{formatIdr(price)}</span>
                   </button>
                 );
               })}
@@ -397,7 +436,6 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
           </div>
 
           <div className="mt-7">
-            {/* Dynamic Status / Selection Summary Pill */}
             <div
               role="status"
               aria-live="polite"
@@ -424,17 +462,13 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
 
             {isViewingOwnTutorAccount ? (
               <div className="mt-4 rounded-[14px] border border-white/25 bg-white/10 p-3.5 text-[12.5px] leading-relaxed text-white">
-                <p>
-                  You are signed in as this tutor. Switch to a learner demo
-                  account to test booking or chat.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleSwitchToLearner}
-                  className="mt-2.5 inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-[11px] bg-white px-4 text-[13px] font-semibold text-[#215273] transition-colors hover:bg-[#EAF2F7]"
+                <p>Ini adalah profil tutor Anda sendiri.</p>
+                <Link
+                  href="/dashboard-tutor"
+                  className="mt-2.5 inline-flex min-h-11 w-full items-center justify-center rounded-[11px] bg-white px-4 text-[13px] font-semibold text-[#215273] transition-colors hover:bg-[#EAF2F7]"
                 >
-                  Switch to Demo Learner
-                </button>
+                  Buka Dashboard Tutor
+                </Link>
               </div>
             ) : (
               <div className="mt-4 space-y-3">
@@ -443,20 +477,6 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
                   onClick={handleBookSession}
                   className="inline-flex min-h-[48px] w-full cursor-pointer items-center justify-center gap-2.5 rounded-[13px] bg-[#3979A5] px-5 py-2.5 text-[14px] font-semibold text-white transition-[background-color,transform] duration-150 hover:bg-[#4387B6] active:translate-y-px"
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.9"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z" />
-                    <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z" />
-                  </svg>
                   <span>Book Session</span>
                 </button>
 
@@ -465,19 +485,6 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
                   onClick={handleChatFirst}
                   className="inline-flex min-h-[48px] w-full cursor-pointer items-center justify-center gap-2.5 rounded-[13px] border border-[#7AA2BD] bg-transparent px-5 py-2.5 text-[14px] font-medium text-white transition-[background-color,transform] duration-150 hover:bg-white/8 active:translate-y-px"
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.9"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                  </svg>
                   <span>Chat First</span>
                 </button>
               </div>
@@ -492,30 +499,47 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
               </p>
             ) : null}
 
-            {/* Escrow Guarantee Footer */}
             <div className="mt-5 flex items-start gap-2.5 text-[11.5px] leading-relaxed text-white/80">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                className="mt-0.5 shrink-0"
-              >
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                <path d="m9 12 2 2 4-4" />
-              </svg>
               <p>
-                Payment is released to the tutor only after the session ends.
+                Payment is held safely by KOLEARA and released to the tutor only
+                after the session is confirmed complete.
               </p>
             </div>
           </div>
         </aside>
       </div>
+
+      {/* Real Learner Reviews */}
+      {reviews.length > 0 ? (
+        <section className="mt-8 rounded-[26px] border border-[#CBD6DE] bg-white p-6">
+          <h2 className="text-[19px] font-semibold text-[#263238]">
+            Student <span className="text-[#3979A5]">Reviews</span> (
+            {reviews.length})
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {reviews.map((rev) => (
+              <article
+                key={rev.id}
+                className="rounded-2xl border border-[#EAEAEA] bg-[#F8FAFB] p-4"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-[#263238]">
+                    {rev.learnerDisplayName}
+                  </p>
+                  <p className="text-xs font-medium text-[#285B7B]">
+                    Clarity {rev.clarityRating}/5 • Pacing {rev.pacingRating}/5
+                  </p>
+                </div>
+                {rev.reviewText ? (
+                  <p className="mt-2 text-xs leading-relaxed text-[#5B686D]">
+                    &ldquo;{rev.reviewText}&rdquo;
+                  </p>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {user && activeConversationId ? (
         <TutorChatModal
@@ -535,7 +559,12 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
         sessionCount={sessionCount}
         slotDisplay={selectedSlotDisplay}
         totalPrice={totalPrice}
+        difficultyTier={difficultyTier}
+        diagnosticNotes={diagnosticNotes}
+        submitting={submittingBooking}
         error={paymentError}
+        onChangeDifficulty={setDifficultyTier}
+        onChangeDiagnosticNotes={setDiagnosticNotes}
         onPayNow={handlePayNow}
         onClose={() => setActiveModal(null)}
       />
@@ -545,8 +574,9 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
           open={activeModal === "qris"}
           bookingId={activeBookingId}
           totalPrice={totalPrice}
+          paymentConfig={paymentConfig}
           onBack={() => setActiveModal("payment")}
-          onAutoPaid={handleQrisAutoPaid}
+          onSubmitProof={handleSubmitQrisProof}
         />
       ) : null}
 
@@ -564,7 +594,9 @@ function TutorProfileContent({ tutorId }: { tutorId: string }) {
           setActiveModal(null);
           setSelectedSlotId(null);
           if (bookedLabel) {
-            setFeedback(`Session confirmed for ${bookedLabel}.`);
+            setFeedback(
+              `Payment proof submitted for ${bookedLabel}. Admin will verify shortly.`
+            );
           }
         }}
       />
