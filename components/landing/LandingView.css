@@ -306,79 +306,44 @@
   }
 }
 
+:is(
+    body:has([data-site-header][data-pathname="/"]),
+    body:has([data-site-header][data-pathname="ssr"]):has([data-landing])
+  )
+  #main-content {
+  padding-block: 0;
+}
+
 /* --------------------------------------------------------------------------
    Desktop / Laptop (>= 1024px): Asymmetric 2-Column Stage (1440×1024 Ref)
    -------------------------------------------------------------------------- */
 @media (min-width: 1024px) {
-  body:has([data-landing]) {
-    --u: clamp(0.71px, calc(100vw / 1440), 1px);
-  }
-
-  /* Lock to single screen without vertical scroll on normal laptop/desktop heights */
+  /* Lock to single screen without vertical scroll ONLY when "/" is the active route */
   @media (min-height: 620px) {
-    body:has([data-landing]) {
-      --u: min(1px, calc(100vw / 1440), calc(100svh / 980));
+    :is(
+        body:has([data-site-header][data-pathname="/"]),
+        body:has([data-site-header][data-pathname="ssr"]):has([data-landing])
+      ) {
       height: 100svh;
       min-height: 0;
       overflow-y: hidden;
     }
 
-    body:has([data-landing]) .site-shell {
+    :is(
+        body:has([data-site-header][data-pathname="/"]),
+        body:has([data-site-header][data-pathname="ssr"]):has([data-landing])
+      )
+      .site-shell {
       height: 100svh;
       min-height: 0;
     }
   }
 
-  body:has([data-landing]) .site-header-inner {
-    padding-top: calc(56 * var(--u));
-    padding-bottom: 0;
-  }
-
-  body:has([data-landing]) .site-logo {
-    height: calc(104 * var(--u));
-  }
-
-  body:has([data-landing]) .site-navigation {
-    gap: calc(78 * var(--u));
-  }
-
-  @media (min-width: 1400px) and (min-height: 900px) {
-    body:has([data-landing]) .site-navigation {
-      position: absolute;
-      left: calc(50% - calc(311 * var(--u)));
-    }
-  }
-
-  body:has([data-landing]) .site-navigation > a {
-    font-size: max(16px, calc(24 * var(--u)));
-  }
-
-  body:has([data-landing]) .site-navigation > a[aria-current="page"] {
-    font-size: max(18px, calc(28 * var(--u)));
-  }
-
-  body:has([data-landing]) .site-navigation > a[aria-current="page"]::after {
-    bottom: -1px;
-    width: calc(53 * var(--u));
-    height: 2px;
-  }
-
-  body:has([data-landing]) .site-auth {
-    gap: calc(18 * var(--u));
-  }
-
-  body:has([data-landing]) .site-login,
-  body:has([data-landing]) .site-signup {
-    font-size: max(16px, calc(24 * var(--u)));
-  }
-
-  body:has([data-landing]) .site-signup {
-    min-height: max(46px, calc(64 * var(--u)));
-    padding: calc(8 * var(--u)) calc(42 * var(--u));
-    border-radius: calc(17 * var(--u));
-  }
-
-  body:has([data-landing]) #main-content {
+  :is(
+      body:has([data-site-header][data-pathname="/"]),
+      body:has([data-site-header][data-pathname="ssr"]):has([data-landing])
+    )
+    #main-content {
     justify-content: center;
   }
 

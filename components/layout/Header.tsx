@@ -26,8 +26,12 @@ function HeaderBar({
   mobileDrawer?: ReactNode;
 }) {
   return (
-    <header className="relative z-30">
-      <div className="site-header-inner mx-auto flex max-w-[1360px] items-center justify-between gap-4 px-5 pt-4 pb-2 sm:px-8 sm:pt-5 md:gap-6 lg:px-10 lg:pt-7 xl:pt-[60px] xl:pb-0">
+    <header
+      data-site-header=""
+      data-pathname={activePathname ?? "ssr"}
+      className="relative z-30"
+    >
+      <div className="site-header-inner mx-auto flex max-w-[1360px] items-center justify-between gap-4 px-5 pt-4 pb-2 sm:px-8 sm:pt-5 md:gap-6 lg:px-10">
         <Link
           href="/"
           className="inline-flex shrink-0 items-center rounded-lg transition-opacity hover:opacity-90"
@@ -38,13 +42,13 @@ function HeaderBar({
             width={214}
             height={104}
             priority
-            className="site-logo h-12 w-auto sm:h-14 md:h-[60px] lg:h-[76px] xl:h-[clamp(84px,calc(10vw-40px),104px)]"
+            className="site-logo h-12 w-auto sm:h-14 md:h-[60px]"
           />
         </Link>
 
         <nav
           aria-label="Main navigation"
-          className="site-navigation hidden items-center gap-6 md:flex lg:gap-10 xl:gap-[clamp(36px,calc(32vw-383px),78px)] min-[1400px]:absolute min-[1400px]:left-[calc(50%-311px)]"
+          className="site-navigation hidden items-center gap-6 md:flex"
         >
           {NAV_ITEMS.map((item) => {
             const active = item.href === "/" && activePathname === "/";
@@ -53,9 +57,9 @@ function HeaderBar({
                 key={item.label}
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`relative inline-flex min-h-11 min-w-11 items-center justify-center whitespace-nowrap text-[15px] transition-colors lg:text-[18px] xl:text-[clamp(20px,calc(2.5vw-12px),24px)] ${
+                className={`relative inline-flex min-h-11 min-w-11 items-center justify-center whitespace-nowrap text-[15px] transition-colors ${
                   active
-                    ? "font-semibold text-[#3979A5] lg:text-[20px] xl:text-[clamp(22px,calc(2.7vw-11px),28px)] after:absolute after:bottom-[-1px] after:left-1/2 after:h-[2px] after:w-9 after:-translate-x-1/2 after:rounded-full after:bg-[#3979A5] xl:after:w-[53px]"
+                    ? "font-semibold text-[#3979A5] after:absolute after:bottom-[-1px] after:left-1/2 after:h-[2px] after:w-9 after:-translate-x-1/2 after:rounded-full after:bg-[#3979A5]"
                     : "font-normal text-[#A3ADB1] hover:text-[#285B7B]"
                 }`}
               >
@@ -65,7 +69,7 @@ function HeaderBar({
           })}
         </nav>
 
-        <div className="site-auth hidden items-center gap-3 md:flex lg:gap-4 xl:gap-[18px] min-[1400px]:-translate-x-[2px]">
+        <div className="site-auth hidden items-center gap-3 md:flex min-[1400px]:-translate-x-[2px]">
           {rightSlot}
         </div>
 
@@ -81,13 +85,13 @@ function GuestAuthLinks() {
     <>
       <Link
         href="/login"
-        className="site-login inline-flex min-h-11 items-center whitespace-nowrap px-2 text-[15px] font-semibold text-[#262626] transition-colors hover:text-[#3979A5] lg:text-[18px] xl:text-[clamp(20px,calc(2.5vw-12px),24px)]"
+        className="site-login inline-flex min-h-11 items-center whitespace-nowrap px-2 text-[15px] font-semibold text-[#262626] transition-colors hover:text-[#3979A5]"
       >
         Login
       </Link>
       <Link
         href="/signup"
-        className="site-signup inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-[14px] bg-[#D99C9C] px-5 py-2 text-[15px] font-semibold text-white transition-[background-color,transform] duration-150 hover:-translate-y-0.5 hover:bg-[#CA8989] active:translate-y-0 lg:min-h-[52px] lg:rounded-[16px] lg:px-7 lg:text-[18px] xl:min-h-[64px] xl:rounded-[17px] xl:px-[42px] xl:text-[clamp(20px,calc(2.5vw-12px),24px)]"
+        className="site-signup inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-[14px] bg-[#D99C9C] px-5 py-2 text-[15px] font-semibold text-white transition-[background-color,transform] duration-150 hover:-translate-y-0.5 hover:bg-[#CA8989] active:translate-y-0"
       >
         Sign Up
       </Link>

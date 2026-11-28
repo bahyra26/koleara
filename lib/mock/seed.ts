@@ -99,6 +99,7 @@ export function createSeedState(): DemoState {
         badge: "asdos",
         rating: 4.9,
         completedSessionsDemo: 24,
+        location: "hybrid",
         slots: [
           "Senin 18:30 WIB",
           "Rabu 19:00 WIB",
@@ -125,6 +126,7 @@ export function createSeedState(): DemoState {
         badge: "asdos",
         rating: 4.8,
         completedSessionsDemo: 19,
+        location: "offline",
         slots: [
           "Selasa 19:00 WIB",
           "Kamis 18:30 WIB",
@@ -151,6 +153,7 @@ export function createSeedState(): DemoState {
         badge: "grade",
         rating: 4.7,
         completedSessionsDemo: 12,
+        location: "online",
         slots: [
           "Senin 20:00 WIB",
           "Kamis 19:30 WIB",
@@ -177,6 +180,7 @@ export function createSeedState(): DemoState {
         badge: "grade",
         rating: 4.8,
         completedSessionsDemo: 15,
+        location: "offline",
         slots: [
           "Rabu 17:00 WIB",
           "Jumat 19:00 WIB",
@@ -202,6 +206,7 @@ export function createSeedState(): DemoState {
         badge: "grade",
         rating: 4.9,
         completedSessionsDemo: 17,
+        location: "online",
         slots: [
           "Selasa 18:00 WIB",
           "Jumat 16:30 WIB",

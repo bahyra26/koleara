@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import {
   bookingObjectValidator,
   courseObjectValidator,
+  isAdminAuthorized,
   paymentObjectValidator,
   sanitizeProofFileName,
   serviceResultValidator,
@@ -11,7 +12,10 @@ import {
 } from "./validators";
 
 export const getCheckoutByBooking = query({
-  args: { bookingId: v.string() },
+  args: {
+    bookingId: v.string(),
+    userId: v.optional(v.string()),
+  },
   returns: v.union(
     v.object({
       booking: bookingObjectValidator,
@@ -49,6 +53,13 @@ export const getCheckoutByBooking = query({
     ]);
 
     if (!tutor || !learner || !course) return null;
+
+    if (args.userId !== undefined) {
+      const uid = args.userId.trim();
+      if (!uid || (booking.learnerId !== uid && tutor.userId !== uid)) {
+        return null;
+      }
+    }
 
     const payment = paymentRow
       ? {
@@ -100,6 +111,7 @@ export const getCheckoutByBooking = query({
         badge: tutor.badge,
         rating: tutor.rating,
         completedSessionsDemo: tutor.completedSessionsDemo,
+        location: tutor.location,
         slots: tutor.slots,
       },
       learner: {
@@ -309,9 +321,18 @@ export const simulateVerification = mutation({
   args: {
     bookingId: v.string(),
     decision: v.union(v.literal("approve"), v.literal("reject")),
+    adminKey: v.optional(v.string()),
   },
   returns: serviceResultValidator(paymentObjectValidator),
   handler: async (ctx, args) => {
+    if (!isAdminAuthorized(args.adminKey)) {
+      return {
+        ok: false as const,
+        code: "UNAUTHORIZED",
+        error: "Kunci admin tidak valid.",
+      };
+    }
+
     const [booking, payment] = await Promise.all([
       ctx.db
         .query("bookings")

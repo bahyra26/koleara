@@ -6,8 +6,18 @@ export const MAX_HOURLY_RATE_IDR = 10_000_000;
 export const MAX_NAME_LENGTH = 100;
 export const MAX_BIO_LENGTH = 1000;
 export const MAX_TOPIC_LENGTH = 120;
+export const MAX_SLOT_LENGTH = 80;
 export const MAX_BRIEF_LENGTH = 500;
 export const MAX_MESSAGE_LENGTH = 2000;
+
+export function sanitizeProofFileName(raw: string | undefined): string {
+  const base = (raw ?? "")
+    .trim()
+    .replace(/^.*[\\/]/, "")
+    .replace(/[^\w.\- ()]/g, "_")
+    .trim();
+  return (base || "bukti-qris-demo.jpg").slice(0, 120);
+}
 
 export function normalizeItsEmail(raw: string): string {
   return raw.trim().toLowerCase();
@@ -221,6 +231,8 @@ export function validateTutorApplicationInput(input: {
 
   if (input.topics.length === 0) {
     errors.topics = "Pilih atau tulis minimal satu topik.";
+  } else if (input.topics.some((t) => t.trim().length > MAX_TOPIC_LENGTH)) {
+    errors.topics = `Setiap topik maksimal ${MAX_TOPIC_LENGTH} karakter.`;
   }
 
   if (!input.bio.trim() || input.bio.trim().length < 15) {
@@ -239,6 +251,8 @@ export function validateTutorApplicationInput(input: {
 
   if (input.slots.length === 0) {
     errors.slots = "Tambahkan minimal satu jadwal tersedia.";
+  } else if (input.slots.some((s) => s.trim().length > MAX_SLOT_LENGTH)) {
+    errors.slots = `Setiap jadwal maksimal ${MAX_SLOT_LENGTH} karakter.`;
   }
 
   return {

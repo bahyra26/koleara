@@ -65,3 +65,61 @@ body {
     animation: none;
   }
 }
+
+/* Unified desktop header scale across all pages so navigation never jumps in size */
+@media (min-width: 1024px) {
+  body {
+    --u: clamp(0.71px, calc(100vw / 1440), 1px);
+  }
+
+  @media (min-height: 620px) {
+    body {
+      --u: min(1px, calc(100vw / 1440), calc(100svh / 980));
+    }
+  }
+
+  .site-header-inner {
+    padding-top: calc(56 * var(--u));
+    padding-bottom: 0;
+  }
+
+  .site-logo {
+    height: calc(104 * var(--u));
+  }
+
+  .site-navigation {
+    gap: calc(78 * var(--u));
+  }
+
+  @media (min-width: 1400px) and (min-height: 900px) {
+    .site-navigation {
+      position: absolute;
+      left: calc(50% - calc(311 * var(--u)));
+    }
+  }
+
+  .site-navigation > a {
+    font-size: max(16px, calc(24 * var(--u)));
+  }
+
+  .site-navigation > a[aria-current="page"]::after {
+    bottom: -1px;
+    width: calc(53 * var(--u));
+    height: 2px;
+  }
+
+  .site-auth {
+    gap: calc(18 * var(--u));
+  }
+
+  .site-login,
+  .site-signup {
+    font-size: max(16px, calc(24 * var(--u)));
+  }
+
+  .site-signup {
+    min-height: max(46px, calc(64 * var(--u)));
+    padding: calc(8 * var(--u)) calc(42 * var(--u));
+    border-radius: calc(17 * var(--u));
+  }
+}

@@ -16,7 +16,7 @@ export function useCourses() {
 export function useTutorSearch(filters: TutorSearchFilters) {
   const state = useDemoState();
   const hydrated = useDemoHydrated();
-  const { query, courseId, topic, maxBudget, scheduleQuery } = filters;
+  const { query, courseId, topic, maxBudget, scheduleQuery, location } = filters;
 
   const results = useMemo(() => {
     void state.tutors;
@@ -27,6 +27,7 @@ export function useTutorSearch(filters: TutorSearchFilters) {
       topic,
       maxBudget,
       scheduleQuery,
+      location,
     });
   }, [
     state.tutors,
@@ -36,6 +37,7 @@ export function useTutorSearch(filters: TutorSearchFilters) {
     topic,
     maxBudget,
     scheduleQuery,
+    location,
   ]);
 
   const topics = useMemo(() => {

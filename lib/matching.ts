@@ -168,8 +168,60 @@ export type RankableTutor = {
   badge?: "grade" | "asdos";
   rating?: number;
   completedSessionsDemo?: number;
+  location?: "online" | "offline" | "hybrid";
   slots: string[];
 };
+
+const DEFAULT_TUTOR_LOCATIONS: Record<string, "online" | "offline" | "hybrid"> = {
+  "tutor-nadia": "hybrid",
+  "tutor-raka": "offline",
+  "tutor-salsa": "online",
+  "tutor-dimas": "offline",
+  "tutor-alya": "online",
+};
+
+const DAY_ALIASES: ReadonlyArray<readonly string[]> = [
+  ["senin", "monday", "mon"],
+  ["selasa", "tuesday", "tue"],
+  ["rabu", "wednesday", "wed"],
+  ["kamis", "thursday", "thu"],
+  ["jumat", "friday", "fri"],
+  ["sabtu", "saturday", "sat"],
+  ["minggu", "sunday", "sun"],
+];
+
+export function resolveTutorLocation(
+  tutor: Pick<RankableTutor, "id" | "location">
+): "online" | "offline" | "hybrid" {
+  return tutor.location ?? DEFAULT_TUTOR_LOCATIONS[tutor.id] ?? "hybrid";
+}
+
+export function matchesTutorLocation(
+  tutor: Pick<RankableTutor, "id" | "location">,
+  filterLocation?: string
+): boolean {
+  const normalized = (filterLocation ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  const loc = resolveTutorLocation(tutor);
+  if (normalized === "online") return loc === "online" || loc === "hybrid";
+  if (normalized === "offline" || normalized === "offline_its") {
+    return loc === "offline" || loc === "hybrid";
+  }
+  return loc === normalized;
+}
+
+function slotMatchesScheduleQuery(slot: string, rawQuery: string): boolean {
+  const slotLower = slot.toLowerCase();
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return true;
+  if (slotLower.includes(q)) return true;
+  for (const group of DAY_ALIASES) {
+    if (group.includes(q)) {
+      return group.some((alias) => slotLower.includes(alias));
+    }
+  }
+  return false;
+}
 
 export type RankedTutorItem<
   TTutor extends RankableTutor = RankableTutor,
@@ -193,6 +245,7 @@ export function rankVerifiedTutors<
     topic?: string;
     maxBudget?: number | null;
     scheduleQuery?: string;
+    location?: string;
   }
 ): Array<RankedTutorItem<TTutor, TCourse>> {
   if (
@@ -209,9 +262,15 @@ export function rankVerifiedTutors<
   const maxBudget =
     typeof filters.maxBudget === "number" ? filters.maxBudget : null;
   const scheduleQuery = (filters.scheduleQuery ?? "").trim().toLowerCase();
+  const locationFilter = (filters.location ?? "").trim().toLowerCase();
 
   const hasActiveFilter = Boolean(
-    queryText || courseId || topic || maxBudget !== null || scheduleQuery
+    queryText ||
+      courseId ||
+      topic ||
+      maxBudget !== null ||
+      scheduleQuery ||
+      locationFilter
   );
 
   const scored: Array<{
@@ -232,9 +291,10 @@ export function rankVerifiedTutors<
       continue;
     }
     if (maxBudget !== null && tutor.hourlyRate > maxBudget) continue;
+    if (!matchesTutorLocation(tutor, locationFilter)) continue;
     if (
       scheduleQuery &&
-      !tutor.slots.some((slot) => slot.toLowerCase().includes(scheduleQuery))
+      !tutor.slots.some((slot) => slotMatchesScheduleQuery(slot, scheduleQuery))
     ) {
       continue;
     }
@@ -269,7 +329,7 @@ export function rankVerifiedTutors<
 
     const matchingSlotsCount = scheduleQuery
       ? tutor.slots.filter((slot) =>
-          slot.toLowerCase().includes(scheduleQuery)
+          slotMatchesScheduleQuery(slot, scheduleQuery)
         ).length
       : tutor.slots.length;
 

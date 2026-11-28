@@ -177,6 +177,7 @@ export const approveTutorApplication = mutation({
         badge,
         rating: existingTutor?.rating,
         completedSessionsDemo: existingTutor?.completedSessionsDemo ?? 0,
+        location: existingTutor?.location,
         slots: application.slots,
       },
     };

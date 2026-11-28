@@ -80,6 +80,7 @@ export const getTutorById = query({
       badge: row.badge,
       rating: row.rating,
       completedSessionsDemo: row.completedSessionsDemo,
+      location: row.location,
       slots: row.slots,
     };
   },
@@ -92,6 +93,7 @@ export const searchTutors = query({
     topic: v.optional(v.string()),
     maxBudget: v.optional(v.union(v.number(), v.null())),
     scheduleQuery: v.optional(v.string()),
+    location: v.optional(v.string()),
   },
   returns: v.array(
     v.object({
@@ -132,6 +134,7 @@ export const searchTutors = query({
       badge: row.badge,
       rating: row.rating,
       completedSessionsDemo: row.completedSessionsDemo,
+      location: row.location,
       slots: row.slots,
     }));
 

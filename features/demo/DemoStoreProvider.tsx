@@ -16,8 +16,6 @@ import { api } from "@/convex/_generated/api";
 import type { DemoState } from "@/lib/contracts";
 import {
   applyRemoteCollections,
-  getConvexConnectedServerSnapshot,
-  getConvexConnectedSnapshot,
   getDemoHydratedServerSnapshot,
   getDemoHydratedSnapshot,
   getDemoServerSnapshot,
@@ -40,14 +38,6 @@ export function useDemoHydrated(): boolean {
     subscribeDemoStore,
     getDemoHydratedSnapshot,
     getDemoHydratedServerSnapshot
-  );
-}
-
-export function useConvexConnected(): boolean {
-  return useSyncExternalStore(
-    subscribeDemoStore,
-    getConvexConnectedSnapshot,
-    getConvexConnectedServerSnapshot
   );
 }
 

@@ -23,6 +23,7 @@ export const chatService = {
       code: "USER_NOT_FOUND",
       error: "Sesi demo tidak ditemukan.",
     };
+    let resolvedId: string | undefined;
 
     updateDemoState((prev) => {
       const learner = prev.users.find((u) => u.id === learnerId);
@@ -51,16 +52,18 @@ export const chatService = {
         (c) => c.learnerId === learnerId && c.tutorId === tutorId
       );
       if (existing) {
+        resolvedId = existing.id;
         result = { ok: true, data: existing };
         return prev;
       }
 
       const conversation: Conversation = {
-        id: `conv-${learnerId}-${tutorId}`,
+        id: createSyntheticId("conv"),
         learnerId,
         tutorId,
         lastMessageAt: Date.now(),
       };
+      resolvedId = conversation.id;
       result = { ok: true, data: conversation };
       return {
         ...prev,
@@ -68,8 +71,9 @@ export const chatService = {
       };
     });
 
-    if (result.ok) {
+    if (resolvedId) {
       getConvexMutationHandlers()?.getOrCreateConversation({
+        appId: resolvedId,
         learnerId,
         tutorId,
       });

@@ -7,6 +7,7 @@ import {
   paymentStatusValidator,
   roleValidator,
   tutorApplicationStatusValidator,
+  tutorLocationValidator,
 } from "./schema";
 
 export const userObjectValidator = v.object({
@@ -38,6 +39,7 @@ export const tutorObjectValidator = v.object({
   badge: v.optional(badgeValidator),
   rating: v.optional(v.number()),
   completedSessionsDemo: v.optional(v.number()),
+  location: v.optional(tutorLocationValidator),
   slots: v.array(v.string()),
 });
 
@@ -115,26 +117,21 @@ export function serviceResultValidator<T extends ReturnType<typeof v.object>>(
   );
 }
 
+export {
+  MAX_BIO_LENGTH,
+  MAX_BRIEF_LENGTH,
+  MAX_HOURLY_RATE_IDR,
+  MAX_MESSAGE_LENGTH,
+  MAX_NAME_LENGTH,
+  MAX_SLOT_LENGTH,
+  MAX_TOPIC_LENGTH,
+  sanitizeProofFileName,
+} from "../lib/validators";
+
 export const SAFE_APP_ID_REGEX = /^[a-zA-Z0-9_-]{3,80}$/;
-export const MAX_NAME_LENGTH = 100;
-export const MAX_BIO_LENGTH = 1000;
-export const MAX_MESSAGE_LENGTH = 2000;
-export const MAX_TOPIC_LENGTH = 120;
-export const MAX_SLOT_LENGTH = 80;
-export const MAX_BRIEF_LENGTH = 500;
-export const MAX_HOURLY_RATE_IDR = 10_000_000;
 
 export function isValidAppId(value: string): boolean {
   return SAFE_APP_ID_REGEX.test(value);
-}
-
-export function sanitizeProofFileName(raw: string | undefined): string {
-  const base = (raw ?? "")
-    .trim()
-    .replace(/^.*[\\/]/, "")
-    .replace(/[^\w.\- ()]/g, "_")
-    .trim();
-  return (base || "bukti-qris-demo.jpg").slice(0, 120);
 }
 
 // shortcut: admin endpoints stay open for Swagger/Bruno demo when KOLEARA_ADMIN_KEY is unset; set KOLEARA_ADMIN_KEY in prod to lock admin mutations

@@ -17,6 +17,10 @@ export type Course = {
 
 export type VerificationBadge = "grade" | "asdos";
 
+export type TutorLocation = "online" | "offline" | "hybrid";
+
+export type TutorLocationFilter = "online" | "offline";
+
 export type Tutor = {
   id: string;
   userId: string;
@@ -31,6 +35,7 @@ export type Tutor = {
   badge?: VerificationBadge;
   rating?: number;
   completedSessionsDemo?: number;
+  location?: TutorLocation;
   slots: string[];
 };
 
@@ -130,6 +135,7 @@ export type TutorSearchFilters = {
   topic?: string;
   maxBudget?: number | null;
   scheduleQuery?: string;
+  location?: TutorLocationFilter | "";
 };
 
 export type TutorSearchResult = {

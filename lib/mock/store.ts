@@ -42,6 +42,7 @@ export type ConvexMutationHandlers = {
     slots: string[];
   }) => void;
   getOrCreateConversation: (args: {
+    appId?: string;
     learnerId: string;
     tutorId: string;
   }) => void;
@@ -89,14 +90,6 @@ export function registerConvexMutationHandlers(
 
 export function getConvexMutationHandlers(): ConvexMutationHandlers | null {
   return convexHandlers;
-}
-
-export function getConvexConnectedSnapshot(): boolean {
-  return convexHandlers !== null;
-}
-
-export function getConvexConnectedServerSnapshot(): boolean {
-  return false;
 }
 
 export function applyRemoteCollections(remote: RemoteCollections): void {

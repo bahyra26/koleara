@@ -4,6 +4,7 @@ import {
   getDemoStateSnapshot,
   updateDemoState,
 } from "@/lib/mock/store";
+import { sanitizeProofFileName } from "@/lib/validators";
 
 // shortcut: demo trusts caller-supplied actorUserId and exposes client simulateVerification; replace with admin-only Convex mutations
 export const paymentService = {
@@ -157,13 +158,7 @@ export const paymentService = {
         return prev;
       }
 
-      const safeFileName = (
-        (params.proofName ?? "")
-          .trim()
-          .replace(/^.*[\\/]/, "")
-          .replace(/[^\w.\- ()]/g, "_")
-          .trim() || "bukti-qris-demo.jpg"
-      ).slice(0, 120);
+      const safeFileName = sanitizeProofFileName(params.proofName);
       const updatedPayment: Payment = {
         id: existing?.id ?? `pay-${booking.id}`,
         bookingId: booking.id,

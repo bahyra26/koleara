@@ -13,11 +13,20 @@ import {
 // shortcut: demo trusts caller-supplied learnerId/senderId/readerId until Convex Auth is wired
 export const getOrCreateConversation = mutation({
   args: {
+    appId: v.optional(v.string()),
     learnerId: v.string(),
     tutorId: v.string(),
   },
   returns: serviceResultValidator(conversationObjectValidator),
   handler: async (ctx, args) => {
+    if (args.appId !== undefined && !isValidAppId(args.appId)) {
+      return {
+        ok: false as const,
+        code: "INVALID_INPUT",
+        error: "Format ID percakapan tidak valid.",
+      };
+    }
+
     const [learner, tutor] = await Promise.all([
       ctx.db
         .query("users")
@@ -72,7 +81,9 @@ export const getOrCreateConversation = mutation({
     }
 
     const now = Date.now();
-    const appId = `conv-${args.learnerId}-${args.tutorId}`;
+    const appId =
+      args.appId ??
+      `conv-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     await ctx.db.insert("conversations", {
       appId,
       learnerId: args.learnerId,
@@ -200,75 +211,69 @@ export const listConversations = query({
             badge: t.badge,
             rating: t.rating,
             completedSessionsDemo: t.completedSessionsDemo,
+            location: t.location,
             slots: t.slots,
           },
         ]),
     );
 
-    const summaries = [];
-
-    for (const conv of conversations) {
+    const eligible = conversations.flatMap((conv) => {
       const learner = userById.get(conv.learnerId);
       const tutor = tutorById.get(conv.tutorId);
-      if (!learner || !tutor) continue;
-
+      if (!learner || !tutor) return [];
       const isLearner = conv.learnerId === args.userId;
       const isTutor = tutor.userId === args.userId;
-      if (!isLearner && !isTutor) continue;
+      if (!isLearner && !isTutor) return [];
+      return [{ conv, learner, tutor, isLearner }];
+    });
 
-      const recentMessagesDesc = await ctx.db
-        .query("messages")
-        .withIndex("by_conversationId_and_createdAt", (q) =>
-          q.eq("conversationId", conv.appId),
-        )
-        .order("desc")
-        .take(200);
+    const summaries = await Promise.all(
+      eligible.map(async ({ conv, learner, tutor, isLearner }) => {
+        const recentMessagesDesc = await ctx.db
+          .query("messages")
+          .withIndex("by_conversationId_and_createdAt", (q) =>
+            q.eq("conversationId", conv.appId),
+          )
+          .order("desc")
+          .take(50);
 
-      let lastMessage: {
-        id: string;
-        conversationId: string;
-        senderId: string;
-        type: "text" | "offer";
-        content?: string;
-        bookingId?: string;
-        createdAt: number;
-        readAt?: number;
-      } | null = null;
-      let unreadCount = 0;
+        const newest = recentMessagesDesc[0];
+        const lastMessage = newest
+          ? {
+              id: newest.appId,
+              conversationId: newest.conversationId,
+              senderId: newest.senderId,
+              type: newest.type,
+              content: newest.content,
+              bookingId: newest.bookingId,
+              createdAt: newest.createdAt,
+              readAt: newest.readAt,
+            }
+          : null;
 
-      for (const msg of recentMessagesDesc) {
-        if (!lastMessage || msg.createdAt > lastMessage.createdAt) {
-          lastMessage = {
-            id: msg.appId,
-            conversationId: msg.conversationId,
-            senderId: msg.senderId,
-            type: msg.type,
-            content: msg.content,
-            bookingId: msg.bookingId,
-            createdAt: msg.createdAt,
-            readAt: msg.readAt,
-          };
+        let unreadCount = 0;
+        for (const msg of recentMessagesDesc) {
+          if (msg.senderId !== args.userId && !msg.readAt) {
+            unreadCount += 1;
+          }
         }
-        if (msg.senderId !== args.userId && !msg.readAt) {
-          unreadCount += 1;
-        }
-      }
 
-      summaries.push({
-        conversation: {
-          id: conv.appId,
-          learnerId: conv.learnerId,
-          tutorId: conv.tutorId,
-          lastMessageAt: conv.lastMessageAt,
-        },
-        learner,
-        tutor,
-        peerName: isLearner ? tutor.name : learner.name,
-        peerRoleLabel: isLearner ? "Tutor" : "Mahasiswa",
-        lastMessage,
-        unreadCount,
-      });
-    }
+        return {
+          conversation: {
+            id: conv.appId,
+            learnerId: conv.learnerId,
+            tutorId: conv.tutorId,
+            lastMessageAt: conv.lastMessageAt,
+          },
+          learner,
+          tutor,
+          peerName: isLearner ? tutor.name : learner.name,
+          peerRoleLabel: isLearner ? "Tutor" : "Mahasiswa",
+          lastMessage,
+          unreadCount,
+        };
+      }),
+    );
 
     summaries.sort(
       (a, b) => b.conversation.lastMessageAt - a.conversation.lastMessageAt,
@@ -278,9 +283,29 @@ export const listConversations = query({
 });
 
 export const listMessages = query({
-  args: { conversationId: v.string() },
+  args: {
+    conversationId: v.string(),
+    userId: v.optional(v.string()),
+  },
   returns: v.array(messageObjectValidator),
   handler: async (ctx, args) => {
+    if (args.userId !== undefined) {
+      const uid = args.userId.trim();
+      if (!uid) return [];
+      const conversation = await ctx.db
+        .query("conversations")
+        .withIndex("by_appId", (q) => q.eq("appId", args.conversationId))
+        .first();
+      if (!conversation) return [];
+      if (conversation.learnerId !== uid) {
+        const tutor = await ctx.db
+          .query("tutors")
+          .withIndex("by_appId", (q) => q.eq("appId", conversation.tutorId))
+          .first();
+        if (tutor?.userId !== uid) return [];
+      }
+    }
+
     const rowsDesc = await ctx.db
       .query("messages")
       .withIndex("by_conversationId_and_createdAt", (q) =>

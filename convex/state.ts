@@ -88,6 +88,7 @@ export const getAppState = query({
         badge: t.badge,
         rating: t.rating,
         completedSessionsDemo: t.completedSessionsDemo,
+        location: t.location,
         slots: t.slots,
       })),
       tutorApplications: tutorApplications.map((a) => ({

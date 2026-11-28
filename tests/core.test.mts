@@ -164,6 +164,24 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
       ),
       true
     );
+
+    const onlineIds = tutorService
+      .search({ location: "online" })
+      .map((r) => r.tutor.id)
+      .sort();
+    assert.deepEqual(onlineIds, ["tutor-alya", "tutor-nadia", "tutor-salsa"]);
+
+    const offlineIds = tutorService
+      .search({ location: "offline" })
+      .map((r) => r.tutor.id)
+      .sort();
+    assert.deepEqual(offlineIds, ["tutor-dimas", "tutor-nadia", "tutor-raka"]);
+
+    const mondayIds = tutorService
+      .search({ scheduleQuery: "Monday" })
+      .map((r) => r.tutor.id)
+      .sort();
+    assert.deepEqual(mondayIds, ["tutor-nadia", "tutor-salsa"]);
   });
 
   it("prevents self-verification on Jadi Tutor submission", () => {
@@ -198,6 +216,7 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
     );
     assert.equal(conv.ok, true);
     if (!conv.ok) return;
+    assert.equal(conv.data.id.includes(signup.data.id), false);
 
     const slotStart = Date.now() + 2 * 60 * 60 * 1000;
     const offer1 = bookingService.createOffer({
@@ -464,6 +483,29 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
     });
     assert.equal(badCourseApp.ok, false);
 
+    // Reject overly long topic (>120) or slot (>80) locally matching Convex bounds
+    const longTopicApp = tutorService.submitApplication({
+      userId: signup.data.id,
+      name: "Rayyan Tester",
+      courseIds: ["course-kalkulus-1"],
+      topics: ["T".repeat(125)],
+      bio: "Bio pengalaman mengajar minimal lima belas karakter.",
+      hourlyRateRaw: 40000,
+      slots: ["Senin 19:00 WIB"],
+    });
+    assert.equal(longTopicApp.ok, false);
+
+    const longSlotApp = tutorService.submitApplication({
+      userId: signup.data.id,
+      name: "Rayyan Tester",
+      courseIds: ["course-kalkulus-1"],
+      topics: ["Turunan"],
+      bio: "Bio pengalaman mengajar minimal lima belas karakter.",
+      hourlyRateRaw: 40000,
+      slots: ["S".repeat(85)],
+    });
+    assert.equal(longSlotApp.ok, false);
+
     // Reject markRead from non-participant or empty readerId
     assert.equal(chatService.markRead("conv-demo-seed-1", "").ok, false);
     assert.equal(
@@ -477,19 +519,69 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
     process.env.NEXT_PUBLIC_CONVEX_URL = "http://127.0.0.1:1";
 
     try {
-      // 1. Missing user_id on /api/conversations rejected (400), not leaked
+      // 1. Missing or unauthorized user_id on /api/conversations & /messages rejected (400 / 403)
       const convNoUser = await GET(
         new Request("http://localhost:3000/api/conversations"),
         { params: Promise.resolve({ slug: ["conversations"] }) }
       );
       assert.equal(convNoUser.status, 400);
 
-      // 2. Negative max_budget rejected (400), not silently ignored
+      const msgNoUser = await GET(
+        new Request(
+          "http://localhost:3000/api/conversations/conv-demo-seed-1/messages"
+        ),
+        {
+          params: Promise.resolve({
+            slug: ["conversations", "conv-demo-seed-1", "messages"],
+          }),
+        }
+      );
+      assert.equal(msgNoUser.status, 400);
+
+      const msgIntruder = await GET(
+        new Request(
+          "http://localhost:3000/api/conversations/conv-demo-seed-1/messages?user_id=user-tutor-2"
+        ),
+        {
+          params: Promise.resolve({
+            slug: ["conversations", "conv-demo-seed-1", "messages"],
+          }),
+        }
+      );
+      assert.equal(msgIntruder.status, 403);
+
+      const msgOwner = await GET(
+        new Request(
+          "http://localhost:3000/api/conversations/conv-demo-seed-1/messages?user_id=user-learner-demo"
+        ),
+        {
+          params: Promise.resolve({
+            slug: ["conversations", "conv-demo-seed-1", "messages"],
+          }),
+        }
+      );
+      assert.equal(msgOwner.status, 200);
+
+      // 2. Negative max_budget and invalid location rejected (400)
       const badBudget = await GET(
         new Request("http://localhost:3000/api/tutors?max_budget=-5000"),
         { params: Promise.resolve({ slug: ["tutors"] }) }
       );
       assert.equal(badBudget.status, 400);
+
+      const badLocation = await GET(
+        new Request("http://localhost:3000/api/tutors?location=mars"),
+        { params: Promise.resolve({ slug: ["tutors"] }) }
+      );
+      assert.equal(badLocation.status, 400);
+
+      const onlineApi = await GET(
+        new Request("http://localhost:3000/api/tutors?location=online"),
+        { params: Promise.resolve({ slug: ["tutors"] }) }
+      );
+      assert.equal(onlineApi.status, 200);
+      const onlineJson = (await onlineApi.json()) as { data: unknown[] };
+      assert.equal(onlineJson.data.length, 3);
 
       // 3. Empty body on payment/status rejected (400), never auto-approved
       const emptyDecision = await PATCH(
@@ -555,6 +647,23 @@ describe("tutor search, offers, overlap, expired check, and checkout", () => {
           }
         );
         assert.equal(deniedDelete.status, 401);
+
+        const deniedPaymentApprove = await PATCH(
+          new Request(
+            "http://localhost:3000/api/bookings/bk-demo-1/payment/status",
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ decision: "approve" }),
+            }
+          ),
+          {
+            params: Promise.resolve({
+              slug: ["bookings", "bk-demo-1", "payment", "status"],
+            }),
+          }
+        );
+        assert.equal(deniedPaymentApprove.status, 401);
 
         const allowedMetrics = await GET(
           new Request("http://localhost:3000/api/admin/metrics", {

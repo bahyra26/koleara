@@ -1,4 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
+import { matchesTutorLocation } from "@/lib/matching";
+import { computePilotMetrics } from "@/lib/metrics";
 import {
   authService,
   bookingService,
@@ -259,53 +261,14 @@ function statusFromServiceCode(
 
 function computeLocalPilotMetrics() {
   const s = getDemoStateSnapshot();
-  const verifiedTutors = s.tutors.filter((t) => t.verified);
-  const totalBookings = s.bookings.length;
-  const acceptedOrPaidBookings = s.bookings.filter(
-    (b) => b.status === "accepted" || b.status === "paid"
-  ).length;
-  const paidBookings = s.bookings.filter((b) => b.status === "paid").length;
-
-  const acceptanceRatePercent =
-    totalBookings > 0
-      ? Math.round((acceptedOrPaidBookings / totalBookings) * 1000) / 10
-      : 0;
-  const paymentCompletionRatePercent =
-    acceptedOrPaidBookings > 0
-      ? Math.round((paidBookings / acceptedOrPaidBookings) * 1000) / 10
-      : 0;
-
-  const ratedTutors = verifiedTutors.filter(
-    (t) => typeof t.rating === "number"
-  );
-  const averageTutorRating =
-    ratedTutors.length > 0
-      ? Math.round(
-          (ratedTutors.reduce((acc, t) => acc + (t.rating ?? 0), 0) /
-            ratedTutors.length) *
-            100
-        ) / 100
-      : 0;
-
-  const totalRevenueIdr = s.payments
-    .filter((p) => p.status === "paid")
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  return {
-    totalUsers: s.users.length,
-    totalLearners: s.users.filter((u) => u.role === "learner").length,
-    totalVerifiedTutors: verifiedTutors.length,
-    pendingTutorApplications: s.tutorApplications.length,
-    totalConversations: s.conversations.length,
-    totalMessages: s.messages.length,
-    totalBookings,
-    acceptedOrPaidBookings,
-    paidBookings,
-    acceptanceRatePercent,
-    paymentCompletionRatePercent,
-    averageTutorRating,
-    totalRevenueIdr,
-  };
+  return computePilotMetrics({
+    users: s.users,
+    verifiedTutors: s.tutors.filter((t) => t.verified),
+    pendingApplicationsCount: s.tutorApplications.length,
+    conversationsCount: s.conversations.length,
+    messagesCount: s.messages.length,
+    bookings: s.bookings,
+  });
 }
 
 // ============================================================================
@@ -417,6 +380,20 @@ export async function GET(
       url.searchParams.get("scheduleQuery") ??
       undefined;
 
+    const rawLocation = url.searchParams.get("location")?.trim().toLowerCase();
+    if (
+      rawLocation &&
+      rawLocation !== "online" &&
+      rawLocation !== "offline" &&
+      rawLocation !== "hybrid"
+    ) {
+      return jsonError(
+        "Parameter location harus bernilai online, offline, atau hybrid.",
+        400,
+        "INVALID_LOCATION"
+      );
+    }
+
     const convexRes = await callConvex("query", "tutors:searchTutors", {
       query,
       courseId,
@@ -425,15 +402,27 @@ export async function GET(
       scheduleQuery,
     });
 
-    const results = convexRes.ok
-      ? (convexRes.value as unknown[])
+    const rawResults = convexRes.ok
+      ? (convexRes.value as Array<{
+          tutor: { id: string; location?: "online" | "offline" | "hybrid" };
+        }>)
       : tutorService.search({
           query,
           courseId,
           topic,
           maxBudget,
           scheduleQuery,
+          location:
+            rawLocation === "online" || rawLocation === "offline"
+              ? rawLocation
+              : undefined,
         });
+
+    const results = rawLocation
+      ? rawResults.filter((item) =>
+          matchesTutorLocation(item.tutor, rawLocation)
+        )
+      : rawResults;
 
     return jsonSuccess("Daftar tutor berhasil diambil.", results, 200, {
       count: results.length,
@@ -506,26 +495,107 @@ export async function GET(
     slug[2] === "messages"
   ) {
     const conversationId = slug[1];
-    const convexRes = await callConvex("query", "chat:listMessages", {
-      conversationId,
+    const userId = (
+      url.searchParams.get("user_id") ??
+      url.searchParams.get("userId") ??
+      ""
+    ).trim();
+    if (!userId) {
+      return jsonError(
+        "Query parameter user_id wajib diisi.",
+        400,
+        "USER_ID_REQUIRED"
+      );
+    }
+
+    const convsRes = await callConvex("query", "chat:listConversations", {
+      userId,
     });
-    const messages = convexRes.ok
-      ? convexRes.value
-      : chatService.listMessages(conversationId);
-    return jsonSuccess("Pesan percakapan berhasil diambil.", messages);
+    if (convsRes.ok) {
+      const convList = convsRes.value as Array<{
+        conversation: { id: string };
+      }>;
+      if (!convList.some((c) => c.conversation.id === conversationId)) {
+        return jsonError(
+          "Akses ditolak atau percakapan tidak ditemukan.",
+          403,
+          "FORBIDDEN"
+        );
+      }
+      const convexRes = await callConvex("query", "chat:listMessages", {
+        conversationId,
+      });
+      return jsonSuccess(
+        "Pesan percakapan berhasil diambil.",
+        convexRes.ok ? convexRes.value : []
+      );
+    }
+
+    const snap = getDemoStateSnapshot();
+    const conv = snap.conversations.find((c) => c.id === conversationId);
+    if (!conv) {
+      return jsonError(
+        "Percakapan tidak ditemukan.",
+        404,
+        "CONVERSATION_NOT_FOUND"
+      );
+    }
+    const convTutor = snap.tutors.find((t) => t.id === conv.tutorId);
+    if (conv.learnerId !== userId && convTutor?.userId !== userId) {
+      return jsonError(
+        "Hanya peserta percakapan yang dapat membaca pesan ini.",
+        403,
+        "FORBIDDEN"
+      );
+    }
+    return jsonSuccess(
+      "Pesan percakapan berhasil diambil.",
+      chatService.listMessages(conversationId)
+    );
   }
 
   // 11. GET /api/bookings/:booking_id
   if (slug.length === 2 && slug[0] === "bookings") {
     const bookingId = slug[1];
+    const userId = (
+      url.searchParams.get("user_id") ??
+      url.searchParams.get("userId") ??
+      ""
+    ).trim();
+    if (!userId) {
+      return jsonError(
+        "Query parameter user_id wajib diisi.",
+        400,
+        "USER_ID_REQUIRED"
+      );
+    }
+
     const convexRes = await callConvex("query", "bookings:getBookingById", {
       bookingId,
     });
-    const booking = convexRes.ok
-      ? convexRes.value
-      : bookingService.getById(bookingId);
+    const booking = (
+      convexRes.ok ? convexRes.value : bookingService.getById(bookingId)
+    ) as { learnerId: string; tutorId: string } | null;
     if (!booking) {
       return jsonError("Data booking tidak ditemukan.", 404, "BOOKING_NOT_FOUND");
+    }
+
+    if (booking.learnerId !== userId) {
+      const tutorRes = await callConvex("query", "tutors:getTutorById", {
+        tutorId: booking.tutorId,
+      });
+      const tutor = (
+        tutorRes.ok
+          ? tutorRes.value
+          : tutorService.getById(booking.tutorId)
+      ) as { userId: string } | null;
+      if (tutor?.userId !== userId) {
+        return jsonError(
+          "Hanya peserta pemesanan yang dapat mengakses data ini.",
+          403,
+          "FORBIDDEN"
+        );
+      }
     }
     return jsonSuccess("Data booking berhasil diambil.", booking);
   }
@@ -533,19 +603,45 @@ export async function GET(
   // 12. GET /api/bookings/:booking_id/checkout
   if (slug.length === 3 && slug[0] === "bookings" && slug[2] === "checkout") {
     const bookingId = slug[1];
+    const userId = (
+      url.searchParams.get("user_id") ??
+      url.searchParams.get("userId") ??
+      ""
+    ).trim();
+    if (!userId) {
+      return jsonError(
+        "Query parameter user_id wajib diisi.",
+        400,
+        "USER_ID_REQUIRED"
+      );
+    }
+
     const convexRes = await callConvex(
       "query",
       "payments:getCheckoutByBooking",
       { bookingId }
     );
-    const checkout = convexRes.ok
-      ? convexRes.value
-      : paymentService.getByBooking(bookingId);
+    const checkout = (
+      convexRes.ok ? convexRes.value : paymentService.getByBooking(bookingId)
+    ) as {
+      booking: { learnerId: string };
+      tutor: { userId: string };
+    } | null;
     if (!checkout) {
       return jsonError(
         "Data checkout booking tidak ditemukan.",
         404,
         "CHECKOUT_NOT_FOUND"
+      );
+    }
+    if (
+      checkout.booking.learnerId !== userId &&
+      checkout.tutor.userId !== userId
+    ) {
+      return jsonError(
+        "Hanya peserta pemesanan yang dapat mengakses halaman checkout ini.",
+        403,
+        "FORBIDDEN"
       );
     }
     return jsonSuccess("Data checkout berhasil diambil.", checkout);
@@ -1005,10 +1101,20 @@ export async function POST(
     if (!adminCheck.ok) return adminCheck.response;
 
     seedEnsured = false;
-    await callConvex("mutation", "seed:resetDemoData", {
+    const convexRes = await callConvex("mutation", "seed:resetDemoData", {
       ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
     });
-    seedEnsured = true;
+    if (
+      convexRes.ok &&
+      typeof convexRes.value === "object" &&
+      convexRes.value !== null &&
+      (convexRes.value as { reset?: boolean }).reset === false
+    ) {
+      return jsonError("Kunci admin tidak valid.", 401, "UNAUTHORIZED");
+    }
+    if (convexRes.ok) {
+      seedEnsured = true;
+    }
     authService.resetDemo();
     return jsonSuccess(
       "Seluruh data demo berhasil direset ke kondisi awal.",
@@ -1150,6 +1256,9 @@ export async function PATCH(
     slug[2] === "payment" &&
     slug[3] === "status"
   ) {
+    const adminCheck = verifyAdminRequest(request);
+    if (!adminCheck.ok) return adminCheck.response;
+
     const bookingId = slug[1];
     if (body.decision !== "approve" && body.decision !== "reject") {
       return jsonError(
@@ -1166,6 +1275,7 @@ export async function PATCH(
       {
         bookingId,
         decision,
+        ...(adminCheck.adminKey ? { adminKey: adminCheck.adminKey } : {}),
       }
     );
     const res = convexRes.ok

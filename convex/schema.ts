@@ -5,6 +5,12 @@ export const roleValidator = v.union(v.literal("learner"), v.literal("tutor"));
 
 export const badgeValidator = v.union(v.literal("grade"), v.literal("asdos"));
 
+export const tutorLocationValidator = v.union(
+  v.literal("online"),
+  v.literal("offline"),
+  v.literal("hybrid"),
+);
+
 export const tutorApplicationStatusValidator = v.literal("pending");
 
 export const messageTypeValidator = v.union(
@@ -66,6 +72,7 @@ export default defineSchema({
     badge: v.optional(badgeValidator),
     rating: v.optional(v.number()),
     completedSessionsDemo: v.optional(v.number()),
+    location: v.optional(tutorLocationValidator),
     slots: v.array(v.string()),
   })
     .index("by_appId", ["appId"])

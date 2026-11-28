@@ -758,7 +758,15 @@ export const REST_ENDPOINTS_CATALOG: RestEndpointDoc[] = [
         description: "ID ruang percakapan",
       },
     ],
-    queryParams: [],
+    queryParams: [
+      {
+        name: "user_id",
+        type: "string",
+        required: true,
+        defaultValue: "user-learner-demo",
+        description: "ID akun peserta percakapan",
+      },
+    ],
     bodyFields: [],
     statusCodes: [{ code: 200, when: "Daftar pesan berhasil diambil" }],
     exampleResponse: {
@@ -1023,7 +1031,15 @@ export const REST_ENDPOINTS_CATALOG: RestEndpointDoc[] = [
         description: "ID booking dari hasil pembuatan tawaran sesi",
       },
     ],
-    queryParams: [],
+    queryParams: [
+      {
+        name: "user_id",
+        type: "string",
+        required: true,
+        defaultValue: "user-learner-demo",
+        description: "ID akun peserta pemesanan",
+      },
+    ],
     bodyFields: [],
     statusCodes: [
       { code: 200, when: "Data booking ditemukan" },
@@ -1171,7 +1187,15 @@ export const REST_ENDPOINTS_CATALOG: RestEndpointDoc[] = [
         description: "ID booking yang akan dibayar",
       },
     ],
-    queryParams: [],
+    queryParams: [
+      {
+        name: "user_id",
+        type: "string",
+        required: true,
+        defaultValue: "user-learner-demo",
+        description: "ID akun peserta pemesanan",
+      },
+    ],
     bodyFields: [],
     statusCodes: [
       { code: 200, when: "Data checkout berhasil diambil" },

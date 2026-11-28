@@ -97,6 +97,7 @@ const INITIAL_TUTORS = [
     badge: "asdos" as const,
     rating: 4.9,
     completedSessionsDemo: 24,
+    location: "hybrid" as const,
     slots: ["Senin 18:30 WIB", "Rabu 19:00 WIB", "Sabtu 10:00 WIB"],
   },
   {
@@ -119,6 +120,7 @@ const INITIAL_TUTORS = [
     badge: "asdos" as const,
     rating: 4.8,
     completedSessionsDemo: 19,
+    location: "offline" as const,
     slots: ["Selasa 19:00 WIB", "Kamis 18:30 WIB", "Minggu 14:00 WIB"],
   },
   {
@@ -141,6 +143,7 @@ const INITIAL_TUTORS = [
     badge: "grade" as const,
     rating: 4.7,
     completedSessionsDemo: 12,
+    location: "online" as const,
     slots: ["Senin 20:00 WIB", "Kamis 19:30 WIB", "Sabtu 15:00 WIB"],
   },
   {
@@ -163,6 +166,7 @@ const INITIAL_TUTORS = [
     badge: "grade" as const,
     rating: 4.8,
     completedSessionsDemo: 15,
+    location: "offline" as const,
     slots: ["Rabu 17:00 WIB", "Jumat 19:00 WIB", "Sabtu 13:00 WIB"],
   },
   {
@@ -184,6 +188,7 @@ const INITIAL_TUTORS = [
     badge: "grade" as const,
     rating: 4.9,
     completedSessionsDemo: 17,
+    location: "online" as const,
     slots: ["Selasa 18:00 WIB", "Jumat 16:30 WIB", "Minggu 10:00 WIB"],
   },
 ];
@@ -232,9 +237,11 @@ async function clearAllTables(ctx: MutationCtx): Promise<void> {
   ] as const;
 
   for (const table of tableNames) {
-    const docs = await ctx.db.query(table).take(500);
-    for (const doc of docs) {
+    let deleted = 0;
+    for await (const doc of ctx.db.query(table)) {
       await ctx.db.delete(table, doc._id);
+      deleted += 1;
+      if (deleted >= 2000) break;
     }
   }
 }

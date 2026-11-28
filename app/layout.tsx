@@ -92,7 +92,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Suspense fallback={<HeaderFallback />}>
               <Header />
             </Suspense>
-            <main id="main-content" tabIndex={-1} className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col px-5 py-6 has-[[data-landing]]:py-0 sm:px-8 lg:px-10">
+            <main id="main-content" tabIndex={-1} className="mx-auto flex w-full max-w-[1360px] flex-1 flex-col px-5 py-6 sm:px-8 lg:px-10">
               {children}
             </main>
           </div>

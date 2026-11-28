@@ -11,7 +11,10 @@ import {
 } from "./validators";
 
 export const getBookingById = query({
-  args: { bookingId: v.string() },
+  args: {
+    bookingId: v.string(),
+    userId: v.optional(v.string()),
+  },
   returns: v.union(bookingObjectValidator, v.null()),
   handler: async (ctx, args) => {
     const row = await ctx.db
@@ -19,6 +22,18 @@ export const getBookingById = query({
       .withIndex("by_appId", (q) => q.eq("appId", args.bookingId))
       .first();
     if (!row) return null;
+
+    if (args.userId !== undefined) {
+      const uid = args.userId.trim();
+      if (!uid) return null;
+      if (row.learnerId !== uid) {
+        const tutor = await ctx.db
+          .query("tutors")
+          .withIndex("by_appId", (q) => q.eq("appId", row.tutorId))
+          .first();
+        if (tutor?.userId !== uid) return null;
+      }
+    }
     return {
       id: row.appId,
       conversationId: row.conversationId,
